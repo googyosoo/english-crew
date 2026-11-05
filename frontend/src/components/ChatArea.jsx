@@ -3,7 +3,7 @@ import TextMessage from './messages/TextMessage';
 import DispatchCard from './messages/DispatchCard';
 import ApprovalCard from './messages/ApprovalCard';
 import ReportCard from './messages/ReportCard';
-import { ChannelIcon, BookIcon, SpeakerMuteIcon, MicIcon, SendIcon } from './common/Icons';
+import { ChannelIcon, BookIcon, MicIcon, SendIcon } from './common/Icons';
 
 export default function ChatArea({
   channel,
@@ -63,18 +63,7 @@ export default function ChatArea({
           </div>
         </div>
 
-        {/* Header Right Action */}
-        <div className="flex items-center gap-2 shrink-0">
-          <button
-            type="button"
-            disabled
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-400 bg-slate-50 border border-slate-200 rounded-lg cursor-not-allowed"
-            title="음성 읽기 기능 (준비 중)"
-          >
-            <SpeakerMuteIcon className="w-3.5 h-3.5" />
-            <span>음성 읽기 꺼짐</span>
-          </button>
-        </div>
+
       </header>
 
       {/* Messages Scroll Area */}

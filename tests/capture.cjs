@@ -2,8 +2,8 @@ const { app, BrowserWindow } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
-const artifactDir = 'C:\\Users\\user\\.gemini\\antigravity\\brain\\bfcf6c24-c0ed-47e4-9449-0980a18f3b67';
 const workspaceDir = path.resolve(__dirname, '..');
+const screenshotDir = path.join(workspaceDir, 'tests', 'screenshots');
 
 app.whenReady().then(async () => {
   const win = new BrowserWindow({
@@ -19,6 +19,8 @@ app.whenReady().then(async () => {
   });
 
   try {
+    fs.mkdirSync(screenshotDir, { recursive: true });
+
     await win.loadURL('http://127.0.0.1:5173');
     await new Promise(r => setTimeout(r, 2000));
 
@@ -26,8 +28,7 @@ app.whenReady().then(async () => {
     console.log('[1/4] Capturing 영어I 채널...');
     const imgEng1 = await win.webContents.capturePage();
     const eng1Buf = imgEng1.toPNG();
-    fs.writeFileSync(path.join(workspaceDir, 'screenshot_eng1.png'), eng1Buf);
-    fs.writeFileSync(path.join(artifactDir, 'screenshot_eng1.png'), eng1Buf);
+    fs.writeFileSync(path.join(screenshotDir, 'screenshot_eng1.png'), eng1Buf);
     console.log('Saved screenshot_eng1.png (size:', eng1Buf.length, 'bytes)');
 
     // 2. Dispatch genuine click event on '전체 교무회의' button
@@ -55,8 +56,7 @@ app.whenReady().then(async () => {
     console.log('[4/4] Capturing 전체 교무회의 채널...');
     const imgGeneral = await win.webContents.capturePage();
     const generalBuf = imgGeneral.toPNG();
-    fs.writeFileSync(path.join(workspaceDir, 'screenshot_general.png'), generalBuf);
-    fs.writeFileSync(path.join(artifactDir, 'screenshot_general.png'), generalBuf);
+    fs.writeFileSync(path.join(screenshotDir, 'screenshot_general.png'), generalBuf);
     console.log('Saved screenshot_general.png (size:', generalBuf.length, 'bytes)');
 
     console.log('[SUCCESS] All screenshots verified and captured successfully!');

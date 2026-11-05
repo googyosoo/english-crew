@@ -16,9 +16,16 @@ export default function RightPanel({
 }) {
   const [activeTab, setActiveTab] = useState('deliverable'); // 'deliverable' | 'context' | 'routine'
 
-  // Determine working directory path based on channel and unit
-  const unitFolder = channel.unit || '공통';
-  const workspacePath = `data/workspaces/${channel.name}/${unitFolder}`;
+  // Determine working directory path based on channel type and unit
+  const getWorkspacePath = () => {
+    if (channel.type === 'all' || channel.id === 'general') {
+      return 'data/workspaces/_공통/';
+    }
+    const safeCourse = (channel.name || '').replace(/\s+/g, '_');
+    const safeUnit = (channel.unit || '1과').replace(/\s+/g, '_');
+    return `data/workspaces/${safeCourse}/${safeUnit}`;
+  };
+  const workspacePath = getWorkspacePath();
 
   return (
     <aside className="w-[320px] shrink-0 h-screen bg-white border-l border-slate-200 flex flex-col select-none">
