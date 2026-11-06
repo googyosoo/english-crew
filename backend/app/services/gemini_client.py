@@ -1,5 +1,6 @@
 import os
 import json
+import asyncio
 import logging
 from pathlib import Path
 from typing import List, Dict, Any, Optional
@@ -92,19 +93,26 @@ async def create_dispatch_plan(
     if reject_reason:
         user_prompt += f"\n[이전 결재 반려 사유]\n교사 피드백: {reject_reason}\n위 반려 사유를 반영하여 과업 계획과 결재 질문을 재구성하십시오.\n"
 
-    response = await client.aio.models.generate_content(
-        model=model_name,
-        contents=user_prompt,
-        config=types.GenerateContentConfig(
-            system_instruction=system_instruction,
-            response_mime_type="application/json",
-            response_schema=DispatchPlan,
-            temperature=0.2,
-        )
-    )
-
-    result_text = response.text
-    return DispatchPlan.model_validate_json(result_text)
+    for attempt in range(4):
+        try:
+            response = await client.aio.models.generate_content(
+                model=model_name,
+                contents=user_prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_instruction,
+                    response_mime_type="application/json",
+                    response_schema=DispatchPlan,
+                    temperature=0.2,
+                )
+            )
+            result_text = response.text
+            return DispatchPlan.model_validate_json(result_text)
+        except Exception as e:
+            if attempt < 3 and ("503" in str(e) or "UNAVAILABLE" in str(e)):
+                logger.warning(f"Coordinator 503 unavailable, retrying in {2 * (attempt + 1)}s...")
+                await asyncio.sleep(2 * (attempt + 1))
+            else:
+                raise e
 
 async def execute_bot_task(
     bot_id: str,
@@ -135,16 +143,23 @@ async def execute_bot_task(
 불필요한 서두나 잡담 없이 바로 산출물 본문을 출력하시오.
 """
 
-    response = await client.aio.models.generate_content(
-        model=model_name,
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            system_instruction=system_instruction,
-            temperature=0.4,
-        )
-    )
-
-    return response.text
+    for attempt in range(3):
+        try:
+            response = await client.aio.models.generate_content(
+                model=model_name,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_instruction,
+                    temperature=0.4,
+                )
+            )
+            return response.text
+        except Exception as e:
+            if attempt < 2 and ("503" in str(e) or "UNAVAILABLE" in str(e)):
+                logger.warning(f"503 unavailable encountered, retrying in {2 * (attempt + 1)}s...")
+                await asyncio.sleep(2 * (attempt + 1))
+            else:
+                raise e
 
 async def summarize_and_finalize_approval(
     initial_question: str,
@@ -187,25 +202,30 @@ async def summarize_and_finalize_approval(
 }}
 """
 
-    try:
-        response = await client.aio.models.generate_content(
-            model=model_name,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                system_instruction=system_instruction,
-                response_mime_type="application/json",
-                temperature=0.2,
+    for attempt in range(4):
+        try:
+            response = await client.aio.models.generate_content(
+                model=model_name,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_instruction,
+                    response_mime_type="application/json",
+                    temperature=0.2,
+                )
             )
-        )
-        data = json.loads(response.text)
-        return {
-            "summary": data.get("summary", "작업이 성공적으로 완료되었습니다."),
-            "approval_question": data.get("approval_question", initial_question)
-        }
-    except Exception as e:
-        logger.warning(f"Failed to summarize with coordinator: {e}")
-        return {
-            "summary": "팀원봇의 과업 수행이 완료되었습니다.",
-            "approval_question": initial_question
-        }
+            data = json.loads(response.text)
+            return {
+                "summary": data.get("summary", "작업이 성공적으로 완료되었습니다."),
+                "approval_question": data.get("approval_question", initial_question)
+            }
+        except Exception as e:
+            if attempt < 3 and ("503" in str(e) or "UNAVAILABLE" in str(e)):
+                logger.warning(f"Summary 503 unavailable, retrying in {2 * (attempt + 1)}s...")
+                await asyncio.sleep(2 * (attempt + 1))
+            else:
+                logger.warning(f"Failed to summarize with coordinator: {e}")
+                return {
+                    "summary": "팀원봇의 과업 수행이 완료되었습니다.",
+                    "approval_question": initial_question
+                }
 
