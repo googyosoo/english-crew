@@ -9,7 +9,9 @@ export default function ChatArea({
   channel,
   messages,
   onSendMessage,
-  onApprovalStatusChange
+  onApprovalDecision,
+  onSelectDeliverable,
+  statusMessage
 }) {
   const [inputText, setInputText] = useState('');
   const messagesEndRef = useRef(null);
@@ -20,7 +22,7 @@ export default function ChatArea({
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+  }, [messages, statusMessage]);
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -59,11 +61,9 @@ export default function ChatArea({
                 </span>
               )}
             </div>
-            <p className="text-xs text-slate-500 truncate">{channel.desc}</p>
+            <p className="text-xs text-slate-500 truncate">{channel.desc || '영어 교육과정 및 수업·평가 크루 협업 채널'}</p>
           </div>
         </div>
-
-
       </header>
 
       {/* Messages Scroll Area */}
@@ -71,23 +71,46 @@ export default function ChatArea({
         {messages.map((msg) => {
           switch (msg.type) {
             case 'dispatch':
-              return <DispatchCard key={msg.id} message={msg} />;
+              return (
+                <DispatchCard
+                  key={msg.id}
+                  message={msg}
+                  onSelectDeliverable={onSelectDeliverable}
+                />
+              );
             case 'approval':
               return (
                 <ApprovalCard
                   key={msg.id}
                   message={msg}
-                  onStatusChange={onApprovalStatusChange}
+                  onApprovalDecision={onApprovalDecision}
                 />
               );
             case 'report':
-              return <ReportCard key={msg.id} message={msg} />;
+              return (
+                <ReportCard
+                  key={msg.id}
+                  message={msg}
+                  onSelectDeliverable={onSelectDeliverable}
+                />
+              );
             case 'user':
+            case 'teacher':
             case 'bot_text':
+            case 'text':
             default:
               return <TextMessage key={msg.id} message={msg} />;
           }
         })}
+
+        {/* Live Status Message (Processing indicator) */}
+        {statusMessage && (
+          <div className="flex items-center gap-2.5 p-3 rounded-lg bg-indigo-50/70 border border-indigo-150 text-xs text-indigo-700 animate-pulse">
+            <span className="w-2 h-2 rounded-full bg-indigo-600 shrink-0" />
+            <span>{statusMessage}</span>
+          </div>
+        )}
+
         <div ref={messagesEndRef} />
       </div>
 

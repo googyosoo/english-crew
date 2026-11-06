@@ -5,8 +5,31 @@ export default function Sidebar({
   channels,
   bots,
   activeChannelId,
-  onSelectChannel
+  onSelectChannel,
+  health
 }) {
+  // Determine status display based on health
+  const getStatusDisplay = () => {
+    if (!health || health.status === 'error') {
+      return {
+        dotClass: 'bg-rose-500',
+        text: '오프라인 · 백엔드 연결 대기',
+      };
+    }
+    if (health.gemini === 'missing_key') {
+      return {
+        dotClass: 'bg-amber-500',
+        text: 'API 키 필요 · backend/.env 설정',
+      };
+    }
+    return {
+      dotClass: 'bg-emerald-500 animate-pulse',
+      text: `연결됨 · Gemini · ${health.model || 'gemini-2.5-flash'}`,
+    };
+  };
+
+  const statusInfo = getStatusDisplay();
+
   return (
     <aside className="w-[240px] shrink-0 h-screen bg-white border-r border-slate-200 flex flex-col select-none">
       {/* App Header */}
@@ -81,31 +104,36 @@ export default function Sidebar({
             </span>
           </div>
           <div className="space-y-1">
-            {bots.map((bot) => (
-              <div
-                key={bot.id}
-                className="flex items-center justify-between px-2.5 py-2 rounded-lg text-xs hover:bg-slate-50 transition-colors"
-              >
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="text-sm select-none shrink-0">{bot.avatar}</span>
-                  <div className="min-w-0">
-                    <div className="text-slate-800 font-medium truncate">{bot.name}</div>
-                    <div className="text-[10px] text-slate-400 truncate">{bot.role}</div>
+            {bots.map((bot) => {
+              const isEnabled = bot.enabled !== false;
+              return (
+                <div
+                  key={bot.id}
+                  className={`flex items-center justify-between px-2.5 py-2 rounded-lg text-xs transition-colors ${
+                    isEnabled ? 'hover:bg-slate-50 text-slate-800' : 'opacity-40 text-slate-400'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-sm select-none shrink-0">{bot.avatar || '🤖'}</span>
+                    <div className="min-w-0">
+                      <div className="font-medium truncate">{bot.name}</div>
+                      <div className="text-[10px] text-slate-400 truncate">{bot.role}</div>
+                    </div>
                   </div>
+                  <span className="px-1.5 py-0.5 text-[10px] font-medium bg-slate-100 text-slate-600 border border-slate-200 rounded">
+                    {bot.provider || 'Gemini'}
+                  </span>
                 </div>
-                <span className="px-1.5 py-0.5 text-[10px] font-medium bg-slate-100 text-slate-600 border border-slate-200 rounded">
-                  {bot.provider}
-                </span>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </div>
 
       {/* Bottom Status Bar */}
       <div className="p-3 border-t border-slate-200 bg-slate-50/70 text-xs flex items-center gap-2 text-slate-600">
-        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
-        <span className="truncate font-medium">연결됨 · Gemini · gemini-2.5-flash</span>
+        <span className={`w-2 h-2 rounded-full shrink-0 ${statusInfo.dotClass}`} />
+        <span className="truncate font-medium">{statusInfo.text}</span>
       </div>
     </aside>
   );

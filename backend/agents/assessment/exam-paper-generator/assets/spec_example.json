@@ -1,0 +1,106 @@
+{
+  "meta": {
+    "template": "영어II",
+    "school": "테스트고",
+    "grade": "1학년",
+    "semester": "1학기",
+    "exam_name": "기말고사",
+    "subject": "공통영어1",
+    "total_pages": "5"
+  },
+  "questions": [
+    {
+      "type": "plain_choice5",
+      "stem": "다음 글의 요지로 가장 적절한 것은? [3점]",
+      "passage": "Reading fiction regularly has been shown to improve empathy because readers must imagine the internal states of characters unlike themselves. This mental exercise strengthens the same neural circuits used when we interpret real people's emotions and intentions in daily life.",
+      "gloss": "*empathy 공감",
+      "choices": [
+        "소설을 읽는 습관은 어휘력 향상에 가장 큰 도움을 준다.",
+        "허구의 인물에 공감하는 연습은 실제 공감 능력 향상으로 이어진다.",
+        "독서는 집중력을 길러주는 유일한 활동이다.",
+        "감정 표현은 타고나는 것이지 훈련으로 바뀌지 않는다.",
+        "소설과 비소설은 뇌에 동일한 영향을 미친다."
+      ],
+      "answer_idx": 1
+    },
+    {
+      "type": "embedded_underline",
+      "stem": "다음 글의 밑줄 친 부분 중, 어법상 틀린 것은? [3.5점]",
+      "lead_text": "The committee, after reviewing dozens of proposals, ",
+      "candidates": [
+        [" the plan that seemed most sustainable over the long term. ", "selected"],
+        [" Although the budget was tight, members agreed ", "to proceed"],
+        [" with a pilot project ", "designed"],
+        [" to test the idea at a small scale before ", "expand"],
+        [" it citywide next year.", "expanding"]
+      ],
+      "answer_idx": 3,
+      "gloss": "*sustainable 지속 가능한"
+    },
+    {
+      "type": "ab_table",
+      "stem": "다음 글의 빈칸 (A), (B)에 들어갈 말로 가장 적절한 것은? [3.5점]",
+      "passage": "Habits form   (A)   through repetition, but they can be broken   (B)   consistent effort and awareness of the triggers that set them off.",
+      "ab_rows": [
+        ["gradually", "with"],
+        ["gradually", "without"],
+        ["instantly", "with"],
+        ["instantly", "without"],
+        ["rarely", "with"]
+      ],
+      "answer_idx": 0
+    },
+    {
+      "type": "marker_passage",
+      "stem": "다음 글에서 전체 흐름과 관계 없는 문장은? [3.5점]",
+      "lead_text": "City planners increasingly rely on data to design walkable neighborhoods.",
+      "sentences": [
+        "Sensors track pedestrian flow at major intersections throughout the day.",
+        "This information helps planners decide where to widen sidewalks.",
+        "Many residents also enjoy weekend farmers markets downtown.",
+        "It also reveals which crossings need longer signal times for safety.",
+        "Over time, this data-driven approach reduces accidents significantly."
+      ],
+      "answer_idx": 2
+    },
+    {
+      "type": "order_choices",
+      "stem": "(A), (B), (C)로 주어진 글 다음에 이어질 순서로 가장 적절한 것은? [4점]",
+      "passage_lead": "Every organization eventually faces a moment when old habits no longer fit new challenges.",
+      "para_a": "(A) Leaders who recognize this early can guide the transition before a crisis forces it.",
+      "para_b": "(B) Those who ignore the signals often find themselves reacting too late, under far worse conditions.",
+      "para_c": "(C) The difference between the two outcomes usually comes down to how honestly the team assesses its own blind spots.",
+      "answer_idx": 0
+    },
+    {
+      "type": "insertion",
+      "stem": "글의 흐름으로 보아, 주어진 문장이 들어가기에 가장 적절한 곳은? [4점]",
+      "given_sentence": "Yet not all delays are harmful; some allow better decisions to emerge.",
+      "lead_text": "Waiting is often treated as wasted time in modern culture.",
+      "rest_sentences": [
+        "People are told to act quickly and decisively whenever possible.",
+        "A rushed choice under pressure can overlook important details.",
+        "Research on negotiation shows that patience frequently produces better terms for both sides.",
+        "This does not mean every decision benefits from delay, of course."
+      ],
+      "answer_idx": 1
+    },
+    {
+      "type": "translation_blank",
+      "stem": "다음 글을 읽고, 밑줄 친 부분을 우리말로 해석하시오. [6점]",
+      "passage": "Even when the evidence clearly favored one option, the group continued to debate, reluctant to admit that their initial instinct might have been wrong.",
+      "num_answer_lines": 3
+    },
+    {
+      "type": "word_box",
+      "stem": "다음 글을 읽고, <조건>에 따라 밑줄 친 우리말과 의미가 같도록 Word Box 안의 단어들을 배열하시오. [6점, 부분점수 있음]",
+      "passage": "그 자원봉사자들은 매주 노인들을 방문하는 것이 자신들에게도 큰 의미가 있다는 것을 깨달았다.",
+      "condition_lines": [
+        "1. Word Box의 단어를 빠짐없이 한 번씩 사용할 것.",
+        "2. 단어의 어형을 필요하면 변화할 것."
+      ],
+      "word_tokens": ["realized", "visiting", "the", "elderly", "meaningful", "that", "was", "also", "to", "them", "weekly"],
+      "num_answer_lines": 2
+    }
+  ]
+}

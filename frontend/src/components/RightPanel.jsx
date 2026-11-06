@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import ReactMarkdown from 'react-markdown';
 import {
   ArtifactIcon,
   ContextIcon,
@@ -14,18 +15,13 @@ export default function RightPanel({
   routines,
   deliverable
 }) {
-  const [activeTab, setActiveTab] = useState('deliverable'); // 'deliverable' | 'context' | 'routine'
+  const [activeTab, setActiveTab] = useState('deliverable');
 
-  // Determine working directory path based on channel type and unit
-  const getWorkspacePath = () => {
-    if (channel.type === 'all' || channel.id === 'general') {
-      return 'data/workspaces/_공통/';
-    }
-    const safeCourse = (channel.name || '').replace(/\s+/g, '_');
-    const safeUnit = (channel.unit || '1과').replace(/\s+/g, '_');
-    return `data/workspaces/${safeCourse}/${safeUnit}`;
-  };
-  const workspacePath = getWorkspacePath();
+  const workspacePath = channel?.workspace_dir || (
+    channel?.type === 'all' || channel?.id === 'general'
+      ? 'data/workspaces/_공통/'
+      : `data/workspaces/${(channel?.name || '').replace(/\s+/g, '_')}/1과`
+  );
 
   return (
     <aside className="w-[320px] shrink-0 h-screen bg-white border-l border-slate-200 flex flex-col select-none">
@@ -69,44 +65,45 @@ export default function RightPanel({
         </button>
       </div>
 
-      {/* Tab Content Area (Scrollable) */}
+      {/* Tab Content Area */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {/* Tab 1: 산출물 미리보기 */}
         {activeTab === 'deliverable' && (
           <div>
-            {deliverable ? (
+            {deliverable && deliverable.content ? (
               <div className="space-y-3">
                 <div className="pb-2 border-b border-slate-150">
-                  <span className="text-[10px] font-semibold tracking-wider text-indigo-600 uppercase bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200">
-                    최신 산출물 미리보기
-                  </span>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-semibold tracking-wider text-indigo-600 uppercase bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200">
+                      산출물 미리보기
+                    </span>
+                    {deliverable.output_path && (
+                      <span className="text-[10px] text-slate-400 font-mono truncate max-w-[140px]" title={deliverable.output_path}>
+                        {deliverable.output_path}
+                      </span>
+                    )}
+                  </div>
                   <h3 className="text-sm font-bold text-slate-900 mt-2">
-                    {deliverable.title}
+                    {deliverable.title || '작업 산출물'}
                   </h3>
                   <div className="text-[11px] text-slate-500 mt-1 flex items-center gap-2">
-                    <span>작성: @{deliverable.bot}</span>
-                    <span>·</span>
-                    <span>검토: @{deliverable.reviewer}</span>
+                    <span>작성: @{deliverable.bot || deliverable.bot_id || '평가봇'}</span>
+                    {deliverable.status && (
+                      <>
+                        <span>·</span>
+                        <span className={`font-medium ${deliverable.status === 'done' ? 'text-emerald-600' : 'text-amber-600'}`}>
+                          {deliverable.status === 'done' ? '완료' : deliverable.status}
+                        </span>
+                      </>
+                    )}
                   </div>
                 </div>
 
-                {/* Formatted Content */}
-                <div className="bg-slate-50 p-3 rounded-card border border-slate-200 text-xs text-slate-700 space-y-3 leading-relaxed">
-                  <div>
-                    <h4 className="font-bold text-slate-900 mb-1">연계 성취기준</h4>
-                    <ul className="list-disc list-inside space-y-1 text-slate-600">
-                      {deliverable.standards.map((std, i) => (
-                        <li key={i} className="text-[11px] leading-snug">{std}</li>
-                      ))}
-                    </ul>
-                  </div>
-
-                  <div className="pt-2 border-t border-slate-200">
-                    <h4 className="font-bold text-slate-900 mb-1">문항 및 루브릭 개요</h4>
-                    <div className="whitespace-pre-wrap font-mono text-[11px] bg-white p-2.5 rounded border border-slate-200 text-slate-800 max-h-64 overflow-y-auto">
-                      {deliverable.content}
-                    </div>
-                  </div>
+                {/* Formatted Content with ReactMarkdown */}
+                <div className="bg-slate-50 p-3 rounded-card border border-slate-200 text-xs text-slate-700 leading-relaxed max-h-[520px] overflow-y-auto prose prose-sm prose-slate max-w-none">
+                  <ReactMarkdown>
+                    {deliverable.content}
+                  </ReactMarkdown>
                 </div>
               </div>
             ) : (
@@ -114,7 +111,7 @@ export default function RightPanel({
                 <ArtifactIcon className="w-8 h-8 mb-2 text-slate-300" />
                 <p className="text-xs font-medium text-slate-600">선택된 산출물이 없습니다</p>
                 <p className="text-[11px] text-slate-400 mt-1">
-                  채널에서 작업을 요청하면 생성된 산출물 미리보기가 여기에 표시됩니다.
+                  작업 보고의 항목을 누르면 해당 마크다운 산출물이 여기에 렌더링됩니다.
                 </p>
               </div>
             )}
