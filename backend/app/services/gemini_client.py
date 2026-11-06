@@ -24,10 +24,16 @@ def get_gemini_config() -> Dict[str, str]:
     model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip()
     return {"api_key": api_key, "model": model}
 
+# Files excluded from prompt loading
+EXCLUDED_PROMPT_FILES = {
+    "hwpx_build_guide.md",
+}
+
 def load_bot_instructions(bot_id: str) -> str:
     """
     Recursively collects all .md files under backend/agents/{bot_id}/
     and prepends the required non-exec instruction constraint.
+    Skips any files defined in EXCLUDED_PROMPT_FILES.
     """
     agents_dir = WORKSPACE_DIR / "backend" / "agents" / bot_id
     if not agents_dir.exists():
@@ -38,6 +44,8 @@ def load_bot_instructions(bot_id: str) -> str:
     ]
 
     for md_file in sorted(agents_dir.rglob("*.md")):
+        if md_file.name in EXCLUDED_PROMPT_FILES:
+            continue
         try:
             text = md_file.read_text(encoding="utf-8")
             md_contents.append(f"\n--- [참조 지침: {md_file.name}] ---\n{text}\n")

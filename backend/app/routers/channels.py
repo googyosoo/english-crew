@@ -44,7 +44,7 @@ async def list_channels():
         rows = await cursor.fetchall()
         result = []
         for r in rows:
-            rel_path, _ = get_workspace_dir(r["type"], r["name"], "1과")
+            rel_path, _ = get_workspace_dir(r["type"], r["name"], "1과", create_dir=False)
             result.append({
                 "id": r["id"],
                 "name": r["name"],
@@ -86,7 +86,14 @@ async def get_channel_messages(channel_id: str):
             })
         return messages
 
-async def process_teacher_request(request_id: str, channel_id: str, content: str, reject_reason: str = None):
+async def process_teacher_request(
+    request_id: str,
+    channel_id: str,
+    content: str,
+    reject_reason: str = None,
+    attempt: int = 0,
+    parent_request_id: str = None
+):
     """
     Background worker for executing the full coordinator -> team bot -> report -> approval pipeline.
     """
@@ -156,6 +163,8 @@ async def process_teacher_request(request_id: str, channel_id: str, content: str
                     plan.summary,
                     json.dumps({
                         "request_id": request_id,
+                        "attempt": attempt,
+                        "parent_request_id": parent_request_id,
                         "unit": unit,
                         "workspace_dir": rel_work_dir,
                         "tasks": tasks_meta
@@ -306,6 +315,8 @@ async def process_teacher_request(request_id: str, channel_id: str, content: str
                     json.dumps({
                         "request_id": request_id,
                         "approval_id": appr_id,
+                        "attempt": attempt,
+                        "parent_request_id": parent_request_id,
                         "status": "pending",
                         "workspace_dir": rel_work_dir,
                         "tasks": report_items
@@ -325,7 +336,27 @@ async def process_teacher_request(request_id: str, channel_id: str, content: str
 
     except Exception as e:
         logger_msg = f"요청 처리 중 오류 발생: {e}"
-        await event_bus.publish(request_id, "error", {"message": logger_msg})
+        # 4. Save error message to messages table so it persists on reload
+        err_msg_id = f"msg_{uuid.uuid4().hex[:8]}"
+        try:
+            async with get_db_connection() as db:
+                await db.execute(
+                    """
+                    INSERT INTO messages (id, channel_id, sender, type, content, metadata_json)
+                    VALUES (?, ?, 'coordinator', 'text', ?, ?)
+                    """,
+                    (
+                        err_msg_id,
+                        channel_id,
+                        f"⚠️ 요청 처리 중 오류가 발생했습니다: {e}",
+                        json.dumps({"request_id": request_id, "error": str(e)}, ensure_ascii=False)
+                    )
+                )
+                await db.commit()
+        except Exception as db_err:
+            logger.error(f"Failed to save error message to DB: {db_err}")
+
+        await event_bus.publish(request_id, "error", {"message": logger_msg, "error_message_id": err_msg_id})
 
 @router.post("/channels/{channel_id}/requests")
 async def create_channel_request(
@@ -347,7 +378,7 @@ async def create_channel_request(
             INSERT INTO messages (id, channel_id, sender, type, content, metadata_json)
             VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (teacher_msg_id, channel_id, "teacher", "text", content, json.dumps({"request_id": request_id}))
+            (teacher_msg_id, channel_id, "teacher", "text", content, json.dumps({"request_id": request_id, "attempt": 0}))
         )
         await db.commit()
 

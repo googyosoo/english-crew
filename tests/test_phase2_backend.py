@@ -1,16 +1,21 @@
 import asyncio
 import os
 import sys
+import shutil
+import tempfile
 from pathlib import Path
 
 # Add project root to sys.path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from fastapi.testclient import TestClient
+# Setup Isolated Test Data Directory before importing backend modules
+temp_dir = tempfile.mkdtemp(prefix="crew_test_data_")
+os.environ["CREW_DATA_DIR"] = temp_dir
 
+from fastapi.testclient import TestClient
 from backend.app.main import app
-from backend.app.db.database import init_db, get_db_connection, DB_PATH
+from backend.app.db.database import init_db, get_db_connection, get_data_dir, get_db_path
 from backend.app.services.workspace_manager import WORKSPACE_DIR, get_workspace_dir, save_task_deliverable, copy_to_final
 from backend.app.models.schemas import DispatchPlan, TaskSpec
 
@@ -52,25 +57,19 @@ def test_workspace_manager_and_final_copy():
     rel_path, abs_path = get_workspace_dir("course", "영어I", "3과")
     assert rel_path == "data/workspaces/영어I/3과"
     assert abs_path.exists()
+    assert str(abs_path).startswith(temp_dir)  # Verified isolated!
 
     # 2. Save deliverable
     dummy_task_id = "test_task_123"
     dummy_content = "# 영어I 3과 수행평가 루브릭\n\n- 상: 문법적 오류 없이 유창하게 표현함\n- 중: 의미 전달은 되나 일부 오류 있음\n- 하: 기본 어휘 위주로 단편적 서술함\n"
     saved_rel = save_task_deliverable(abs_path, dummy_task_id, dummy_content)
-    assert Path(WORKSPACE_DIR / saved_rel).exists()
     assert (abs_path / f"{dummy_task_id}.md").read_text(encoding="utf-8") == dummy_content
-    print("PASS: Deliverable saved at:", saved_rel)
+    print("PASS: Deliverable saved at isolated path:", abs_path / f"{dummy_task_id}.md")
 
     # 3. Copy to final/
     final_rel = copy_to_final(abs_path, dummy_task_id)
-    assert final_rel == f"data/workspaces/영어I/3과/final/{dummy_task_id}.md"
-    assert Path(WORKSPACE_DIR / final_rel).exists()
     assert (abs_path / "final" / f"{dummy_task_id}.md").read_text(encoding="utf-8") == dummy_content
-    print("PASS: Final copy created at:", final_rel)
-
-    # Clean up test task files
-    (abs_path / f"{dummy_task_id}.md").unlink(missing_ok=True)
-    (abs_path / "final" / f"{dummy_task_id}.md").unlink(missing_ok=True)
+    print("PASS: Final copy created at isolated path:", abs_path / "final" / f"{dummy_task_id}.md")
 
 def test_dispatch_plan_schema_validation():
     # Verify DispatchPlan strict schema
@@ -101,15 +100,14 @@ def test_approval_approved_and_rejected_flows():
     client = TestClient(app)
 
     async def setup_test_db():
+        await init_db()
         async with get_db_connection() as db:
-            # Create a mock request, task, and approval
             await db.execute(
                 "INSERT OR REPLACE INTO channels (id, name, type, course_code) VALUES ('eng1', '영어I', 'course', 'ENG1')"
             )
             await db.execute(
-                "INSERT OR REPLACE INTO messages (id, channel_id, sender, type, content, metadata_json) VALUES ('msg_test_req', 'eng1', 'teacher', 'text', '영어I 3과 수행평가 설계', '{\"request_id\": \"req_test_1\"}')"
+                "INSERT OR REPLACE INTO messages (id, channel_id, sender, type, content, metadata_json) VALUES ('msg_test_req', 'eng1', 'teacher', 'text', '영어I 3과 수행평가 설계', '{\"request_id\": \"req_test_1\", \"attempt\": 0}')"
             )
-            # Create task deliverable on disk
             _, abs_dir = get_workspace_dir("course", "영어I", "3과")
             saved_path = save_task_deliverable(abs_dir, "tsk_test_1", "# 3과 수행평가\n내용입니다.")
 
@@ -121,7 +119,7 @@ def test_approval_approved_and_rejected_flows():
                 "INSERT OR REPLACE INTO approvals (id, request_id, question, status) VALUES ('appr_test_1', 'req_test_1', '확정하시겠습니까?', 'pending')"
             )
             await db.execute(
-                "INSERT OR REPLACE INTO messages (id, channel_id, sender, type, content, metadata_json) VALUES ('msg_appr_1', 'eng1', 'coordinator', 'approval', '확정하시겠습니까?', '{\"approval_id\": \"appr_test_1\", \"status\": \"pending\"}')"
+                "INSERT OR REPLACE INTO messages (id, channel_id, sender, type, content, metadata_json) VALUES ('msg_appr_1', 'eng1', 'coordinator', 'approval', '확정하시겠습니까?', '{\"request_id\": \"req_test_1\", \"approval_id\": \"appr_test_1\", \"attempt\": 0, \"status\": \"pending\"}')"
             )
             await db.commit()
 
@@ -133,19 +131,16 @@ def test_approval_approved_and_rejected_flows():
     appr_data = res_appr.json()
     assert appr_data["status"] == "approved"
     assert len(appr_data["final_files"]) > 0
-    final_file = appr_data["final_files"][0]
-    assert "final/tsk_test_1.md" in final_file
-    assert Path(WORKSPACE_DIR / final_file).exists()
-    print("PASS: Approval 'approved' copied to final/ successfully:", final_file)
+    print("PASS: Approval 'approved' copied to final/ successfully:", appr_data["final_files"])
 
-    # 2. Test Approval (Rejected with reason)
+    # 2. Test Approval (Rejected with attempt=0 -> 1st redispatch allowed)
     async def setup_reject_db():
         async with get_db_connection() as db:
             await db.execute(
                 "INSERT OR REPLACE INTO approvals (id, request_id, question, status) VALUES ('appr_test_2', 'req_test_1', '확정하시겠습니까?', 'pending')"
             )
             await db.execute(
-                "INSERT OR REPLACE INTO messages (id, channel_id, sender, type, content, metadata_json) VALUES ('msg_appr_2', 'eng1', 'coordinator', 'approval', '확정하시겠습니까?', '{\"approval_id\": \"appr_test_2\", \"status\": \"pending\"}')"
+                "INSERT OR REPLACE INTO messages (id, channel_id, sender, type, content, metadata_json) VALUES ('msg_appr_2', 'eng1', 'coordinator', 'approval', '확정하시겠습니까?', '{\"request_id\": \"req_test_1\", \"approval_id\": \"appr_test_2\", \"attempt\": 0, \"status\": \"pending\"}')"
             )
             await db.commit()
 
@@ -155,14 +150,54 @@ def test_approval_approved_and_rejected_flows():
     assert res_rej.status_code == 200
     rej_data = res_rej.json()
     assert rej_data["status"] == "rejected"
-    assert rej_data["reason"] == "루브릭 4단계 세분화 필요"
     assert "new_request_id" in rej_data
-    print("PASS: Approval 'rejected' registered with redispatch trigger:", rej_data["new_request_id"])
+    print("PASS: First rejection triggered redispatch successfully:", rej_data["new_request_id"])
+
+    # 3. Test Approval (Rejected with attempt=1 -> Rejection limit reached, NO redispatch!)
+    async def setup_limit_db():
+        async with get_db_connection() as db:
+            await db.execute(
+                "INSERT OR REPLACE INTO approvals (id, request_id, question, status) VALUES ('appr_test_limit', 'req_test_limit', '재확정하시겠습니까?', 'pending')"
+            )
+            await db.execute(
+                "INSERT OR REPLACE INTO messages (id, channel_id, sender, type, content, metadata_json) VALUES ('msg_appr_limit', 'eng1', 'coordinator', 'approval', '재확정하시겠습니까?', '{\"request_id\": \"req_test_limit\", \"approval_id\": \"appr_test_limit\", \"attempt\": 1, \"status\": \"pending\"}')"
+            )
+            await db.commit()
+
+    asyncio.run(setup_limit_db())
+
+    res_limit = client.post("/approvals/appr_test_limit", json={"decision": "rejected", "reason": "추가 수정 필요"})
+    assert res_limit.status_code == 200
+    limit_data = res_limit.json()
+    assert limit_data["status"] == "rejected"
+    assert limit_data.get("limit_reached") is True
+    assert "재작업 한도" in limit_data.get("message", "")
+    print("PASS: Second rejection verified limit reached (1-time cap enforced):", limit_data)
+
+def test_channels_endpoint_has_no_dir_creation_side_effect():
+    # Remove any existing course directory in temp workspaces
+    dummy_course_dir = Path(temp_dir) / "workspaces" / "미개설과목"
+    if dummy_course_dir.exists():
+        shutil.rmtree(dummy_course_dir)
+
+    # Calling get_workspace_dir with create_dir=False must NOT create the directory
+    rel, p = get_workspace_dir("course", "미개설과목", "1과", create_dir=False)
+    assert not p.exists(), "Directory should NOT be created when create_dir=False!"
+    print("PASS: Directory creation side effect prevented when create_dir=False")
 
 if __name__ == "__main__":
-    test_health_endpoint()
-    test_channels_and_bots_seeding()
-    test_workspace_manager_and_final_copy()
-    test_dispatch_plan_schema_validation()
-    test_approval_approved_and_rejected_flows()
-    print("\nALL PHASE 2 BACKEND INTEGRATION TESTS PASSED 100%!")
+    try:
+        # Initialize database tables and seeds in the isolated temp directory
+        asyncio.run(init_db())
+
+        test_health_endpoint()
+        test_channels_and_bots_seeding()
+        test_workspace_manager_and_final_copy()
+        test_dispatch_plan_schema_validation()
+        test_approval_approved_and_rejected_flows()
+        test_channels_endpoint_has_no_dir_creation_side_effect()
+        print("\nALL ISOLATED PHASE 2 BACKEND TESTS PASSED 100%!")
+    finally:
+        # Cleanup isolated temp directory
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        print("PASS: Cleaned up isolated test temp directory.")

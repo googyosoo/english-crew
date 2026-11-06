@@ -6,18 +6,26 @@ from contextlib import asynccontextmanager
 
 # Base workspace directory (parent of backend)
 WORKSPACE_DIR = Path(__file__).resolve().parent.parent.parent.parent
-DATA_DIR = WORKSPACE_DIR / "data"
-DB_PATH = DATA_DIR / "crew.db"
+
+def get_data_dir() -> Path:
+    custom_dir = os.getenv("CREW_DATA_DIR")
+    if custom_dir:
+        return Path(custom_dir)
+    return WORKSPACE_DIR / "data"
+
+def get_db_path() -> Path:
+    return get_data_dir() / "crew.db"
 
 @asynccontextmanager
 async def get_db_connection():
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    async with aiosqlite.connect(str(DB_PATH)) as db:
+    data_dir = get_data_dir()
+    data_dir.mkdir(parents=True, exist_ok=True)
+    async with aiosqlite.connect(str(get_db_path())) as db:
         db.row_factory = aiosqlite.Row
         yield db
 
 async def init_db():
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    get_data_dir().mkdir(parents=True, exist_ok=True)
     async with get_db_connection() as db:
         await db.execute("""
             CREATE TABLE IF NOT EXISTS channels (

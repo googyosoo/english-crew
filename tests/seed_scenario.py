@@ -6,7 +6,15 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from backend.app.db.database import get_db_connection
+import os
+if not os.getenv("CREW_DATA_DIR"):
+    # Guard against accidental write to real data/
+    import tempfile
+    default_test_dir = tempfile.mkdtemp(prefix="crew_seed_scenario_")
+    os.environ["CREW_DATA_DIR"] = default_test_dir
+    print(f"[TEST ISOLATION] CREW_DATA_DIR not set. Using isolated temp directory: {default_test_dir}")
+
+from backend.app.db.database import get_db_connection, init_db
 from backend.app.services.workspace_manager import get_workspace_dir, save_task_deliverable, copy_to_final
 
 async def seed_eng1_scenario():

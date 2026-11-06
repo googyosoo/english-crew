@@ -96,18 +96,27 @@ async def decide_approval(
             }
 
         else: # rejected
+            # Determine current attempt count from approval metadata or teacher message
+            attempt = 0
+            cursor = await db.execute(
+                "SELECT id, metadata_json FROM messages WHERE type = 'approval' AND metadata_json LIKE ?",
+                (f'%{approval_id}%',)
+            )
+            appr_msg = await cursor.fetchone()
+            if appr_msg and appr_msg["metadata_json"]:
+                try:
+                    meta = json.loads(appr_msg["metadata_json"])
+                    attempt = meta.get("attempt", 0)
+                except Exception:
+                    pass
+
             # 1. Update approval status
             await db.execute(
                 "UPDATE approvals SET status = 'rejected', reason = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                 (reason, approval_id)
             )
 
-            # 2. Update message
-            cursor = await db.execute(
-                "SELECT id, metadata_json FROM messages WHERE type = 'approval' AND metadata_json LIKE ?",
-                (f'%{approval_id}%',)
-            )
-            appr_msg = await cursor.fetchone()
+            # 2. Update approval message
             if appr_msg:
                 meta = json.loads(appr_msg["metadata_json"])
                 meta["status"] = "rejected"
@@ -117,16 +126,44 @@ async def decide_approval(
                     (json.dumps(meta, ensure_ascii=False), appr_msg["id"])
                 )
 
+            # 3. Check attempt limit: 1-time redispatch maximum
+            if attempt >= 1:
+                # Limit reached: do NOT redispatch, insert limit message
+                limit_msg_id = f"msg_{uuid.uuid4().hex[:8]}"
+                await db.execute(
+                    """
+                    INSERT INTO messages (id, channel_id, sender, type, content, metadata_json)
+                    VALUES (?, ?, 'coordinator', 'text', ?, ?)
+                    """,
+                    (
+                        limit_msg_id,
+                        channel_id,
+                        "재작업 한도(1회)에 도달했습니다. 추가 수정이 필요하시면 새로운 요청으로 진행해 주십시오.",
+                        json.dumps({"request_id": request_id, "attempt": attempt, "limit_reached": True}, ensure_ascii=False)
+                    )
+                )
+                await db.commit()
+
+                return {
+                    "status": "rejected",
+                    "approval_id": approval_id,
+                    "reason": reason,
+                    "limit_reached": True,
+                    "message": "재작업 한도 도달"
+                }
+
             await db.commit()
 
-            # 3. Trigger one-time redispatch
+            # 4. Trigger one-time redispatch with attempt=1
             new_request_id = f"req_{uuid.uuid4().hex[:8]}"
             background_tasks.add_task(
                 process_teacher_request,
                 new_request_id,
                 channel_id,
                 teacher_content,
-                reason
+                reason,
+                attempt=attempt + 1,
+                parent_request_id=request_id
             )
 
             return {
