@@ -1,17 +1,28 @@
 import React from 'react';
 import { CheckIcon } from '../common/Icons';
 
-export default function ReportCard({ message, onSelectDeliverable }) {
+const BOT_NAMES = {
+  coordinator: '코디봇',
+  assessment: '평가봇',
+  curriculum: '교육과정봇',
+  lesson: '수업봇',
+  record: '기록봇'
+};
+
+export default function ReportCard({ message, onSelectDeliverable, onRetryRequest }) {
   const meta = message.metadata || {};
   const tasks = meta.tasks || [];
   const reports = message.reports || [];
   const items = tasks.length > 0 ? tasks : reports;
   const summary = message.content || meta.summary || '작업이 완료되었습니다.';
+  const hasFailures = meta.has_failures || items.some(t => t.status === 'failed');
 
   return (
     <div className="flex items-start gap-3 my-3">
-      <div className="w-8 h-8 rounded-full bg-emerald-100 border border-emerald-200 flex items-center justify-center shrink-0 text-sm">
-        📊
+      <div className={`w-8 h-8 rounded-full border flex items-center justify-center shrink-0 text-sm ${
+        hasFailures ? 'bg-rose-100 border-rose-200' : 'bg-emerald-100 border-emerald-200'
+      }`}>
+        {hasFailures ? '⚠️' : '📊'}
       </div>
       <div className="flex-1 max-w-[85%]">
         <div className="flex items-center gap-2 mb-1 text-xs text-slate-500">
@@ -19,19 +30,24 @@ export default function ReportCard({ message, onSelectDeliverable }) {
           <span>{message.time || message.created_at?.slice(11, 16)}</span>
         </div>
 
-        <div className="bg-white border border-slate-200 shadow-sm rounded-card p-4 text-slate-800">
+        <div className={`bg-white border shadow-sm rounded-card p-4 text-slate-800 ${
+          hasFailures ? 'border-rose-200' : 'border-slate-200'
+        }`}>
           <div className="flex items-center gap-2 pb-2 mb-3 border-b border-slate-100">
-            <span className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center">
-              <CheckIcon className="w-3.5 h-3.5" />
+            <span className={`w-5 h-5 rounded-full flex items-center justify-center ${
+              hasFailures ? 'bg-rose-100 text-rose-600' : 'bg-emerald-100 text-emerald-600'
+            }`}>
+              {hasFailures ? '!' : <CheckIcon className="w-3.5 h-3.5" />}
             </span>
             <span className="text-sm font-bold text-slate-900">
-              {message.title || '작업 보고'}
+              {message.title || (hasFailures ? '작업 실패 보고' : '작업 보고')}
             </span>
           </div>
 
           <div className="space-y-2 mb-3">
             {items.map((item, idx) => {
-              const botId = item.bot_id || item.bot || item.botName;
+              const rawBot = item.bot_id || item.bot;
+              const botDisplayName = BOT_NAMES[rawBot] || item.botName || rawBot || '평가봇';
               const title = item.title || item.text || '작업 항목';
               const isFailed = item.status === 'failed';
               const isDone = item.status === 'done';
@@ -50,7 +66,7 @@ export default function ReportCard({ message, onSelectDeliverable }) {
                     }`}>
                       {isFailed ? '✕' : <CheckIcon className="w-3 h-3 text-emerald-600" />}
                     </span>
-                    <span className="font-medium text-slate-800 shrink-0">@{botId}</span>
+                    <span className="font-medium text-slate-800 shrink-0">@{botDisplayName}</span>
                     <span className="text-slate-400">→</span>
                     <span className="text-slate-600 truncate">{title}</span>
                   </div>
@@ -70,6 +86,19 @@ export default function ReportCard({ message, onSelectDeliverable }) {
             <p className="text-xs text-slate-600 pt-2 border-t border-slate-100 whitespace-pre-wrap leading-relaxed">
               {summary}
             </p>
+          )}
+
+          {/* Rule 3: Retry button for failed tasks */}
+          {hasFailures && onRetryRequest && (
+            <div className="pt-3 mt-2 border-t border-slate-150 flex items-center justify-end">
+              <button
+                type="button"
+                onClick={() => onRetryRequest(meta.teacher_content || '실패한 과업 재실행 요청')}
+                className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors flex items-center gap-1.5"
+              >
+                <span>실패 과업 재시도</span>
+              </button>
+            </div>
           )}
         </div>
       </div>

@@ -7,8 +7,7 @@ import {
   BOTS as MOCK_BOTS,
   INITIAL_MESSAGES as MOCK_MESSAGES,
   CONTEXT_NOTES,
-  ROUTINES,
-  MOCK_DELIVERABLE_ENG1
+  ROUTINES
 } from './mocks/mockData';
 import {
   fetchHealth,
@@ -27,7 +26,9 @@ export default function App() {
   const [activeChannelId, setActiveChannelId] = useState('eng1');
   const [messagesMap, setMessagesMap] = useState(MOCK_MESSAGES);
   const [health, setHealth] = useState({ status: 'ok', gemini: 'missing_key', model: 'gemini-2.5-flash' });
-  const [activeDeliverable, setActiveDeliverable] = useState(MOCK_DELIVERABLE_ENG1);
+  // Rule 1: Remove mock deliverable completely, default to null
+  const [activeDeliverable, setActiveDeliverable] = useState(null);
+  const [activeWorkspaceDir, setActiveWorkspaceDir] = useState(null);
   const [statusMessage, setStatusMessage] = useState('');
 
   // Track active SSE cleanup
@@ -103,6 +104,33 @@ export default function App() {
           ...prev,
           [channelId]: formatted
         }));
+
+        // Extract latest workspace_dir from recent messages
+        let foundWorkspaceDir = null;
+        let latestDoneTask = null;
+
+        for (let i = formatted.length - 1; i >= 0; i--) {
+          const m = formatted[i];
+          if (!foundWorkspaceDir && m.metadata?.workspace_dir) {
+            foundWorkspaceDir = m.metadata.workspace_dir;
+          }
+          if (!latestDoneTask && m.metadata?.tasks) {
+            const done = m.metadata.tasks.find((t) => t.status === 'done');
+            if (done) latestDoneTask = done;
+          }
+          if (foundWorkspaceDir && latestDoneTask) break;
+        }
+
+        if (foundWorkspaceDir) {
+          setActiveWorkspaceDir(foundWorkspaceDir);
+        }
+
+        // Auto-load latest done deliverable from actual API
+        if (latestDoneTask) {
+          handleSelectDeliverable(latestDoneTask);
+        }
+      } else {
+        setActiveWorkspaceDir(null);
       }
     } catch (e) {
       console.warn(`Failed to fetch messages for ${channelId}:`, e);
@@ -144,6 +172,9 @@ export default function App() {
         if (type === 'status') {
           setStatusMessage(data.message || '');
         } else if (type === 'dispatch_created') {
+          if (data.workspace_dir) {
+            setActiveWorkspaceDir(data.workspace_dir);
+          }
           appendMessage({
             id: data.message_id || `dispatch-${Date.now()}`,
             type: 'dispatch',
@@ -173,6 +204,11 @@ export default function App() {
               })
             };
           });
+
+          // If a task finished, load its deliverable
+          if (data.status === 'done' && data.task_id) {
+            handleSelectDeliverable({ id: data.task_id });
+          }
         } else if (type === 'completed') {
           setStatusMessage('');
           // Refresh channel messages from DB to get canonical cards
@@ -249,7 +285,7 @@ export default function App() {
     }
   };
 
-  // 5. Select deliverable to view in RightPanel
+  // 5. Select deliverable to view in RightPanel via API
   const handleSelectDeliverable = async (taskItem) => {
     const taskId = taskItem.id || taskItem.task_id;
     if (!taskId) return;
@@ -265,14 +301,8 @@ export default function App() {
         content: del.content || '산출물 파일 내용이 비어 있습니다.'
       });
     } catch (e) {
-      console.warn('Failed to fetch deliverable content, showing basic info:', e);
-      setActiveDeliverable({
-        title: taskItem.title || '산출물',
-        bot: taskItem.bot || '평가봇',
-        status: taskItem.status,
-        output_path: taskItem.output_path,
-        content: taskItem.deliverable || '산출물 내용을 불러올 수 없습니다.'
-      });
+      console.warn('Failed to fetch deliverable content from API:', e);
+      setActiveDeliverable(null);
     }
   };
 
@@ -294,6 +324,7 @@ export default function App() {
         onSendMessage={handleSendMessage}
         onApprovalDecision={handleApprovalDecision}
         onSelectDeliverable={handleSelectDeliverable}
+        onRetryRequest={handleSendMessage}
         statusMessage={statusMessage}
       />
 
@@ -303,6 +334,7 @@ export default function App() {
         contextNote={activeContext}
         routines={ROUTINES}
         deliverable={activeDeliverable}
+        workspaceDir={activeWorkspaceDir}
       />
     </div>
   );

@@ -247,7 +247,58 @@ async def process_teacher_request(
 
         task_results = await asyncio.gather(*(run_single_task(dt) for dt in db_tasks))
 
-        # 6. Coordinator summarization & final approval question
+        # 6. Check task results for failures
+        has_failures = any(tr.get("status") == "failed" for tr in task_results)
+
+        report_items = []
+        for tr in task_results:
+            report_items.append({
+                "task_id": tr["id"],
+                "bot_id": tr["bot_id"],
+                "title": tr["title"],
+                "status": tr["status"],
+                "output_path": tr.get("output_path", ""),
+                "error_message": tr.get("error_message", "")
+            })
+
+        report_msg_id = f"msg_{uuid.uuid4().hex[:8]}"
+
+        if has_failures:
+            # Rule 3: If any task failed, do NOT create approval card.
+            # Only create ReportCard with retry action flag.
+            fail_summary = "일부 과업 수행 중 오류가 발생했습니다. 아래 작업 보고를 확인하시고 '실패 과업 재시도'를 진행해 주십시오."
+            async with get_db_connection() as db:
+                await db.execute(
+                    """
+                    INSERT INTO messages (id, channel_id, sender, type, content, metadata_json)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        report_msg_id,
+                        channel_id,
+                        "coordinator",
+                        "report",
+                        fail_summary,
+                        json.dumps({
+                            "request_id": request_id,
+                            "workspace_dir": rel_work_dir,
+                            "tasks": report_items,
+                            "has_failures": True,
+                            "teacher_content": content
+                        }, ensure_ascii=False)
+                    )
+                )
+                await db.commit()
+
+            await event_bus.publish(request_id, "completed", {
+                "request_id": request_id,
+                "report_message_id": report_msg_id,
+                "summary": fail_summary,
+                "has_failures": True
+            })
+            return
+
+        # 7. When all tasks succeeded: Coordinator summarization & final approval question
         await event_bus.publish(request_id, "status", {"message": "코디봇이 결과를 취합하고 결재 질문을 정리하고 있습니다..."})
         summary_result = await summarize_and_finalize_approval(
             initial_question=plan.approval_question,
@@ -257,7 +308,7 @@ async def process_teacher_request(
         summary_text = summary_result["summary"]
         final_approval_question = summary_result["approval_question"]
 
-        # 7. Create approval record
+        # 8. Create approval record and cards
         appr_id = f"appr_{uuid.uuid4().hex[:8]}"
         async with get_db_connection() as db:
             await db.execute(
@@ -269,17 +320,6 @@ async def process_teacher_request(
             )
 
             # Create ReportCard message
-            report_msg_id = f"msg_{uuid.uuid4().hex[:8]}"
-            report_items = []
-            for tr in task_results:
-                report_items.append({
-                    "task_id": tr["id"],
-                    "bot_id": tr["bot_id"],
-                    "title": tr["title"],
-                    "status": tr["status"],
-                    "output_path": tr.get("output_path", "")
-                })
-
             await db.execute(
                 """
                 INSERT INTO messages (id, channel_id, sender, type, content, metadata_json)
@@ -294,7 +334,8 @@ async def process_teacher_request(
                     json.dumps({
                         "request_id": request_id,
                         "workspace_dir": rel_work_dir,
-                        "tasks": report_items
+                        "tasks": report_items,
+                        "has_failures": False
                     }, ensure_ascii=False)
                 )
             )
@@ -331,7 +372,8 @@ async def process_teacher_request(
             "approval_message_id": appr_msg_id,
             "approval_id": appr_id,
             "summary": summary_text,
-            "approval_question": final_approval_question
+            "approval_question": final_approval_question,
+            "has_failures": False
         })
 
     except Exception as e:

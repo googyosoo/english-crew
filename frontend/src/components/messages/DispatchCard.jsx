@@ -1,6 +1,14 @@
 import React from 'react';
 import { CheckIcon } from '../common/Icons';
 
+const BOT_NAMES = {
+  coordinator: '코디봇',
+  assessment: '평가봇',
+  curriculum: '교육과정봇',
+  lesson: '수업봇',
+  record: '기록봇'
+};
+
 export default function DispatchCard({ message, onSelectDeliverable }) {
   const meta = message.metadata || {};
   const tasks = meta.tasks || message.tasks || [];
@@ -27,33 +35,38 @@ export default function DispatchCard({ message, onSelectDeliverable }) {
           </div>
 
           <div className="space-y-2">
-            {tasks.map((task, idx) => (
-              <div
-                key={task.id || idx}
-                onClick={() => onSelectDeliverable && onSelectDeliverable(task)}
-                className={`flex items-center justify-between p-2.5 rounded-lg bg-slate-50 border border-slate-150 text-sm transition-all ${
-                  onSelectDeliverable ? 'cursor-pointer hover:bg-indigo-50/50 hover:border-indigo-200' : ''
-                }`}
-              >
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 text-xs ${
-                    task.status === 'done'
-                      ? 'bg-emerald-100 text-emerald-600'
-                      : task.status === 'failed'
-                      ? 'bg-rose-100 text-rose-600'
-                      : 'bg-indigo-100 text-indigo-600'
-                  }`}>
-                    {task.status === 'done' ? <CheckIcon className="w-3.5 h-3.5" /> : '✓'}
-                  </span>
-                  <span className="font-medium text-slate-800 truncate">{task.title}</span>
-                  <span className="text-slate-400">→</span>
-                  <span className="text-indigo-600 font-semibold shrink-0">@{task.bot || task.bot_id || task.botName}</span>
+            {tasks.map((task, idx) => {
+              const rawBot = task.bot || task.bot_id;
+              const botDisplayName = BOT_NAMES[rawBot] || task.botName || rawBot || '평가봇';
+
+              return (
+                <div
+                  key={task.id || idx}
+                  onClick={() => onSelectDeliverable && onSelectDeliverable(task)}
+                  className={`flex items-center justify-between p-2.5 rounded-lg bg-slate-50 border border-slate-150 text-sm transition-all ${
+                    onSelectDeliverable ? 'cursor-pointer hover:bg-indigo-50/50 hover:border-indigo-200' : ''
+                  }`}
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 text-xs ${
+                      task.status === 'done'
+                        ? 'bg-emerald-100 text-emerald-600'
+                        : task.status === 'failed'
+                        ? 'bg-rose-100 text-rose-600'
+                        : 'bg-indigo-100 text-indigo-600'
+                    }`}>
+                      {task.status === 'done' ? <CheckIcon className="w-3.5 h-3.5" /> : '✓'}
+                    </span>
+                    <span className="font-medium text-slate-800 truncate">{task.title}</span>
+                    <span className="text-slate-400">→</span>
+                    <span className="text-indigo-600 font-semibold shrink-0">@{botDisplayName}</span>
+                  </div>
+                  <div className="text-xs text-slate-500 bg-white px-2.5 py-1 rounded border border-slate-200 shrink-0 ml-2">
+                    {task.deliverable}
+                  </div>
                 </div>
-                <div className="text-xs text-slate-500 bg-white px-2.5 py-1 rounded border border-slate-200 shrink-0 ml-2">
-                  {task.deliverable}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </div>

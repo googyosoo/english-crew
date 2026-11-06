@@ -11,6 +11,7 @@ export default function ChatArea({
   onSendMessage,
   onApprovalDecision,
   onSelectDeliverable,
+  onRetryRequest,
   statusMessage
 }) {
   const [inputText, setInputText] = useState('');
@@ -92,6 +93,7 @@ export default function ChatArea({
                   key={msg.id}
                   message={msg}
                   onSelectDeliverable={onSelectDeliverable}
+                  onRetryRequest={onRetryRequest}
                 />
               );
             case 'user':

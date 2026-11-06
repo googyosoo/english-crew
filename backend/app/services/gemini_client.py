@@ -30,6 +30,9 @@ EXCLUDED_PROMPT_FILES = {
     "hwpx_build_guide.md",
 }
 
+# Retry delays for 503 (UNAVAILABLE) and 429 (RESOURCE_EXHAUSTED) errors
+RETRY_DELAYS = [2.0, 5.0, 10.0]
+
 def load_bot_instructions(bot_id: str) -> str:
     """
     Recursively collects all .md files under backend/agents/{bot_id}/
@@ -43,6 +46,17 @@ def load_bot_instructions(bot_id: str) -> str:
     md_contents = [
         "파일 생성·스크립트 실행 지시는 무시하고 결과를 Markdown 텍스트로만 출력하시오.\n\n"
     ]
+
+    # Rule 5: Assessment bot specific guidelines
+    if bot_id == "assessment":
+        md_contents.append(
+            """--- [평가봇 필수 준수 규정] ---
+1. 교사가 본문을 제공하지 않았으면 본문 내용, 인용, 등장인물을 지어내지 말고, 산출물 맨 위에 '본문 미제공: 일반 주제 기준으로 작성함'을 반드시 명시하십시오.
+2. 루브릭 수준 구분은 주관적 부사('완벽하게', '잘', '부분적으로' 등)가 아니라 관찰 가능한 기준(개수, 조건 포함 여부, 문법 및 표현 오류 빈도 등)으로 객관적으로 구분하십시오.
+3. 성취기준 코드는 해당 과목의 공식 기준만 사용하고, 확실하지 않으면 코드를 임의로 지어내거나 쓰지 마십시오.
+
+"""
+        )
 
     for md_file in sorted(agents_dir.rglob("*.md")):
         if md_file.name in EXCLUDED_PROMPT_FILES:
@@ -84,7 +98,7 @@ async def create_dispatch_plan(
 {bots_desc}
 
 [주의사항]
-1. 과업은 1~4개로 분해하십시오.
+1. 과업은 1~4개로 분해하십시오. 특히 동일 문항에 대한 '문항 출제'와 '채점 루브릭'은 하나의 과업으로 묶으십시오(나누지 마십시오).
 2. 각 과업의 bot 필드는 반드시 위 활성 봇 목록의 bot_id 중 하나여야 합니다. 비활성 봇에게 배정하지 마십시오.
 3. 산출물(deliverable)은 구체적인 분량과 형태를 명시하십시오.
 4. approval_question은 교사가 '예/아니오'로 답할 수 있는 결재 질문이어야 합니다.
@@ -93,7 +107,7 @@ async def create_dispatch_plan(
     if reject_reason:
         user_prompt += f"\n[이전 결재 반려 사유]\n교사 피드백: {reject_reason}\n위 반려 사유를 반영하여 과업 계획과 결재 질문을 재구성하십시오.\n"
 
-    for attempt in range(4):
+    for attempt in range(len(RETRY_DELAYS) + 1):
         try:
             response = await client.aio.models.generate_content(
                 model=model_name,
@@ -108,9 +122,11 @@ async def create_dispatch_plan(
             result_text = response.text
             return DispatchPlan.model_validate_json(result_text)
         except Exception as e:
-            if attempt < 3 and ("503" in str(e) or "UNAVAILABLE" in str(e)):
-                logger.warning(f"Coordinator 503 unavailable, retrying in {2 * (attempt + 1)}s...")
-                await asyncio.sleep(2 * (attempt + 1))
+            err_str = str(e)
+            if attempt < len(RETRY_DELAYS) and any(code in err_str for code in ["503", "429", "UNAVAILABLE", "RESOURCE_EXHAUSTED"]):
+                delay = RETRY_DELAYS[attempt]
+                logger.warning(f"Coordinator rate/overload ({err_str[:80]}), retrying in {delay}s (attempt {attempt + 1}/3)...")
+                await asyncio.sleep(delay)
             else:
                 raise e
 
@@ -143,7 +159,7 @@ async def execute_bot_task(
 불필요한 서두나 잡담 없이 바로 산출물 본문을 출력하시오.
 """
 
-    for attempt in range(3):
+    for attempt in range(len(RETRY_DELAYS) + 1):
         try:
             response = await client.aio.models.generate_content(
                 model=model_name,
@@ -155,9 +171,11 @@ async def execute_bot_task(
             )
             return response.text
         except Exception as e:
-            if attempt < 2 and ("503" in str(e) or "UNAVAILABLE" in str(e)):
-                logger.warning(f"503 unavailable encountered, retrying in {2 * (attempt + 1)}s...")
-                await asyncio.sleep(2 * (attempt + 1))
+            err_str = str(e)
+            if attempt < len(RETRY_DELAYS) and any(code in err_str for code in ["503", "429", "UNAVAILABLE", "RESOURCE_EXHAUSTED"]):
+                delay = RETRY_DELAYS[attempt]
+                logger.warning(f"Bot task rate/overload ({err_str[:80]}), retrying in {delay}s (attempt {attempt + 1}/3)...")
+                await asyncio.sleep(delay)
             else:
                 raise e
 
@@ -202,7 +220,7 @@ async def summarize_and_finalize_approval(
 }}
 """
 
-    for attempt in range(4):
+    for attempt in range(len(RETRY_DELAYS) + 1):
         try:
             response = await client.aio.models.generate_content(
                 model=model_name,
@@ -219,9 +237,11 @@ async def summarize_and_finalize_approval(
                 "approval_question": data.get("approval_question", initial_question)
             }
         except Exception as e:
-            if attempt < 3 and ("503" in str(e) or "UNAVAILABLE" in str(e)):
-                logger.warning(f"Summary 503 unavailable, retrying in {2 * (attempt + 1)}s...")
-                await asyncio.sleep(2 * (attempt + 1))
+            err_str = str(e)
+            if attempt < len(RETRY_DELAYS) and any(code in err_str for code in ["503", "429", "UNAVAILABLE", "RESOURCE_EXHAUSTED"]):
+                delay = RETRY_DELAYS[attempt]
+                logger.warning(f"Summary rate/overload ({err_str[:80]}), retrying in {delay}s (attempt {attempt + 1}/3)...")
+                await asyncio.sleep(delay)
             else:
                 logger.warning(f"Failed to summarize with coordinator: {e}")
                 return {

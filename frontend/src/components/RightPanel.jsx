@@ -9,15 +9,24 @@ import {
   CheckIcon
 } from './common/Icons';
 
+const BOT_NAMES = {
+  coordinator: '코디봇',
+  assessment: '평가봇',
+  curriculum: '교육과정봇',
+  lesson: '수업봇',
+  record: '기록봇'
+};
+
 export default function RightPanel({
   channel,
   contextNote,
   routines,
-  deliverable
+  deliverable,
+  workspaceDir
 }) {
   const [activeTab, setActiveTab] = useState('deliverable');
 
-  const workspacePath = channel?.workspace_dir || (
+  const workspacePath = workspaceDir || channel?.workspace_dir || (
     channel?.type === 'all' || channel?.id === 'general'
       ? 'data/workspaces/_공통/'
       : `data/workspaces/${(channel?.name || '').replace(/\s+/g, '_')}/1과`
@@ -87,7 +96,7 @@ export default function RightPanel({
                     {deliverable.title || '작업 산출물'}
                   </h3>
                   <div className="text-[11px] text-slate-500 mt-1 flex items-center gap-2">
-                    <span>작성: @{deliverable.bot || deliverable.bot_id || '평가봇'}</span>
+                    <span>작성: @{BOT_NAMES[deliverable.bot] || BOT_NAMES[deliverable.bot_id] || deliverable.bot || deliverable.bot_id || '평가봇'}</span>
                     {deliverable.status && (
                       <>
                         <span>·</span>
