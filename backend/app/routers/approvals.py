@@ -34,24 +34,38 @@ async def decide_approval(
 
         request_id = appr["request_id"]
 
-        # Fetch associated tasks
+        # 1. Fetch approval message directly from messages table to determine channel_id
+        cursor = await db.execute(
+            """
+            SELECT id, channel_id, metadata_json FROM messages
+            WHERE type = 'approval' AND metadata_json LIKE ?
+            ORDER BY created_at DESC LIMIT 1
+            """,
+            (f'%{approval_id}%',)
+        )
+        appr_msg = await cursor.fetchone()
+        if not appr_msg:
+            raise HTTPException(status_code=404, detail="결재 메시지를 찾을 수 없습니다.")
+
+        channel_id = appr_msg["channel_id"]
+
+        # 2. Fetch associated tasks
         cursor = await db.execute(
             "SELECT id, bot_id, title, status, output_path FROM tasks WHERE request_id = ?",
             (request_id,)
         )
         tasks = await cursor.fetchall()
 
-        # Fetch channel and teacher message
+        # 3. Fetch original teacher message content
         cursor = await db.execute(
             """
-            SELECT id, channel_id, content FROM messages
+            SELECT content FROM messages
             WHERE sender = 'teacher' AND metadata_json LIKE ?
             ORDER BY created_at DESC LIMIT 1
             """,
             (f'%{request_id}%',)
         )
         teacher_msg = await cursor.fetchone()
-        channel_id = teacher_msg["channel_id"] if teacher_msg else "eng1"
         teacher_content = teacher_msg["content"] if teacher_msg else ""
 
         if decision == "approved":
@@ -73,42 +87,28 @@ async def decide_approval(
                         final_files.append(copied_rel_path)
 
             # 3. Update approval message in messages table
-            cursor = await db.execute(
-                "SELECT id, metadata_json FROM messages WHERE type = 'approval' AND metadata_json LIKE ?",
-                (f'%{approval_id}%',)
+            meta = json.loads(appr_msg["metadata_json"]) if appr_msg["metadata_json"] else {}
+            meta["status"] = "approved"
+            meta["final_files"] = final_files
+            await db.execute(
+                "UPDATE messages SET metadata_json = ? WHERE id = ?",
+                (json.dumps(meta, ensure_ascii=False), appr_msg["id"])
             )
-            appr_msg = await cursor.fetchone()
-            if appr_msg:
-                meta = json.loads(appr_msg["metadata_json"])
-                meta["status"] = "approved"
-                meta["final_files"] = final_files
-                await db.execute(
-                    "UPDATE messages SET metadata_json = ? WHERE id = ?",
-                    (json.dumps(meta, ensure_ascii=False), appr_msg["id"])
-                )
 
             await db.commit()
 
             return {
                 "status": "approved",
                 "approval_id": approval_id,
+                "channel_id": channel_id,
                 "final_files": final_files
             }
 
         else: # rejected
-            # Determine current attempt count from approval metadata or teacher message
+            # Determine current attempt count from approval metadata
             attempt = 0
-            cursor = await db.execute(
-                "SELECT id, metadata_json FROM messages WHERE type = 'approval' AND metadata_json LIKE ?",
-                (f'%{approval_id}%',)
-            )
-            appr_msg = await cursor.fetchone()
-            if appr_msg and appr_msg["metadata_json"]:
-                try:
-                    meta = json.loads(appr_msg["metadata_json"])
-                    attempt = meta.get("attempt", 0)
-                except Exception:
-                    pass
+            meta = json.loads(appr_msg["metadata_json"]) if appr_msg["metadata_json"] else {}
+            attempt = meta.get("attempt", 0)
 
             # 1. Update approval status
             await db.execute(
@@ -117,14 +117,12 @@ async def decide_approval(
             )
 
             # 2. Update approval message
-            if appr_msg:
-                meta = json.loads(appr_msg["metadata_json"])
-                meta["status"] = "rejected"
-                meta["reason"] = reason
-                await db.execute(
-                    "UPDATE messages SET metadata_json = ? WHERE id = ?",
-                    (json.dumps(meta, ensure_ascii=False), appr_msg["id"])
-                )
+            meta["status"] = "rejected"
+            meta["reason"] = reason
+            await db.execute(
+                "UPDATE messages SET metadata_json = ? WHERE id = ?",
+                (json.dumps(meta, ensure_ascii=False), appr_msg["id"])
+            )
 
             # 3. Check attempt limit: 1-time redispatch maximum
             if attempt >= 1:
@@ -169,6 +167,7 @@ async def decide_approval(
             return {
                 "status": "rejected",
                 "approval_id": approval_id,
+                "channel_id": channel_id,
                 "reason": reason,
                 "new_request_id": new_request_id
             }

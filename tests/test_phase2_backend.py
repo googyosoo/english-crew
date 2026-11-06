@@ -17,6 +17,7 @@ from fastapi.testclient import TestClient
 from backend.app.main import app
 from backend.app.db.database import init_db, get_db_connection, get_data_dir, get_db_path
 from backend.app.services.workspace_manager import WORKSPACE_DIR, get_workspace_dir, save_task_deliverable, copy_to_final
+from backend.app.services.event_bus import EventBus
 from backend.app.models.schemas import DispatchPlan, TaskSpec
 
 def test_health_endpoint():
@@ -131,6 +132,7 @@ def test_approval_approved_and_rejected_flows():
     appr_data = res_appr.json()
     assert appr_data["status"] == "approved"
     assert len(appr_data["final_files"]) > 0
+    assert appr_data["channel_id"] == "eng1"
     print("PASS: Approval 'approved' copied to final/ successfully:", appr_data["final_files"])
 
     # 2. Test Approval (Rejected with attempt=0 -> 1st redispatch allowed)
@@ -151,6 +153,7 @@ def test_approval_approved_and_rejected_flows():
     rej_data = res_rej.json()
     assert rej_data["status"] == "rejected"
     assert "new_request_id" in rej_data
+    assert rej_data["channel_id"] == "eng1"
     print("PASS: First rejection triggered redispatch successfully:", rej_data["new_request_id"])
 
     # 3. Test Approval (Rejected with attempt=1 -> Rejection limit reached, NO redispatch!)
@@ -174,6 +177,70 @@ def test_approval_approved_and_rejected_flows():
     assert "재작업 한도" in limit_data.get("message", "")
     print("PASS: Second rejection verified limit reached (1-time cap enforced):", limit_data)
 
+def test_approval_channel_preservation():
+    """
+    Verify that approvals maintain the original channel_id from the approval message
+    instead of defaulting to 'eng1'. (Testing with 'adv_eng1')
+    """
+    client = TestClient(app)
+
+    async def setup_adv_eng_db():
+        async with get_db_connection() as db:
+            req_id = "req_adv_1"
+            appr_id = "appr_adv_1"
+            await db.execute(
+                "INSERT OR REPLACE INTO messages (id, channel_id, sender, type, content, metadata_json) VALUES ('msg_adv_req', 'adv_eng1', 'teacher', 'text', '심화영어 심화 독해 에세이 문항', '{\"request_id\": \"req_adv_1\", \"attempt\": 0}')"
+            )
+            await db.execute(
+                "INSERT OR REPLACE INTO approvals (id, request_id, question, status) VALUES (?, ?, '심화영어 문항을 확정하시겠습니까?', 'pending')",
+                (appr_id, req_id)
+            )
+            await db.execute(
+                """
+                INSERT OR REPLACE INTO messages (id, channel_id, sender, type, content, metadata_json)
+                VALUES ('msg_adv_appr', 'adv_eng1', 'coordinator', 'approval', '심화영어 문항을 확정하시겠습니까?', ?)
+                """,
+                (f'{{"request_id": "{req_id}", "approval_id": "{appr_id}", "attempt": 0, "status": "pending"}}',)
+            )
+            await db.commit()
+
+    asyncio.run(setup_adv_eng_db())
+
+    # Reject and verify that the redispatch request retains 'adv_eng1'
+    res = client.post("/approvals/appr_adv_1", json={"decision": "rejected", "reason": "심화 어휘 추가 필요"})
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] == "rejected"
+    assert data["channel_id"] == "adv_eng1", f"Expected channel_id 'adv_eng1', got {data.get('channel_id')}"
+    print("PASS: Approval rejection successfully preserved original channel 'adv_eng1' (no hardcoded eng1 fallback)!")
+
+def test_event_bus_cleanup_after_completion():
+    """
+    Verify that EventBus automatically deletes event history after retention delay for completed/error events.
+    """
+    async def run_bus_test():
+        bus = EventBus(retention_seconds=0.1) # 100ms for fast test
+        req_id = "req_auto_cleanup_test"
+
+        # 1. Publish status event -> buffer should have it
+        await bus.publish(req_id, "status", {"message": "진행 중"})
+        assert req_id in bus._event_history
+        assert len(bus._event_history[req_id]) == 1
+
+        # 2. Publish completed event -> triggers background cleanup task
+        await bus.publish(req_id, "completed", {"result": "ok"})
+        assert req_id in bus._event_history
+        assert len(bus._event_history[req_id]) == 2
+
+        # 3. Wait past retention delay (150ms > 100ms)
+        await asyncio.sleep(0.15)
+
+        # 4. History for this req_id must now be pruned
+        assert req_id not in bus._event_history, f"Expected {req_id} to be cleaned up from EventBus history!"
+        print("PASS: EventBus automatically cleaned up history after terminal event retention window")
+
+    asyncio.run(run_bus_test())
+
 def test_channels_endpoint_has_no_dir_creation_side_effect():
     # Remove any existing course directory in temp workspaces
     dummy_course_dir = Path(temp_dir) / "workspaces" / "미개설과목"
@@ -195,6 +262,8 @@ if __name__ == "__main__":
         test_workspace_manager_and_final_copy()
         test_dispatch_plan_schema_validation()
         test_approval_approved_and_rejected_flows()
+        test_approval_channel_preservation()
+        test_event_bus_cleanup_after_completion()
         test_channels_endpoint_has_no_dir_creation_side_effect()
         print("\nALL ISOLATED PHASE 2 BACKEND TESTS PASSED 100%!")
     finally:
