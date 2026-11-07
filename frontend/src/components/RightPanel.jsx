@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import {
   ArtifactIcon,
@@ -8,6 +8,7 @@ import {
   FolderIcon,
   CheckIcon
 } from './common/Icons';
+import { fetchChannelContext, saveChannelContext } from '../api/client';
 
 const BOT_NAMES = {
   coordinator: '코디봇',
@@ -20,16 +21,64 @@ const BOT_NAMES = {
 export default function RightPanel({
   channel,
   contextNote,
-  routines,
   deliverable,
   workspaceDir
 }) {
   const [activeTab, setActiveTab] = useState('deliverable');
 
+  // Phase 3 Context state
+  const [selectedUnit, setSelectedUnit] = useState('3과');
+  const [bodyText, setBodyText] = useState('');
+  const [isSavingBody, setIsSavingBody] = useState(false);
+  const [bodySaveMessage, setBodySaveMessage] = useState('');
+  const [channelNotes, setChannelNotes] = useState([]);
+
+  // Load real context notes from backend
+  const loadContextNotes = async () => {
+    if (!channel?.id) return;
+    try {
+      const notes = await fetchChannelContext(channel.id);
+      setChannelNotes(notes || []);
+      // Find body for selectedUnit
+      const foundBody = notes.find(n => n.kind === '본문' && n.unit === selectedUnit);
+      setBodyText(foundBody ? foundBody.content : '');
+    } catch (e) {
+      console.warn('Failed to load channel context:', e);
+    }
+  };
+
+  useEffect(() => {
+    loadContextNotes();
+  }, [channel?.id, selectedUnit]);
+
+  const handleSaveBody = async () => {
+    if (!channel?.id || !bodyText.trim()) return;
+    setIsSavingBody(true);
+    setBodySaveMessage('');
+    try {
+      await saveChannelContext(channel.id, {
+        course_code: channel.course_code || 'COMMON',
+        unit: selectedUnit,
+        kind: '본문',
+        content: bodyText.trim()
+      });
+      setBodySaveMessage('본문이 저장되었습니다.');
+      await loadContextNotes();
+      setTimeout(() => setBodySaveMessage(''), 3000);
+    } catch (err) {
+      setBodySaveMessage(`저장 실패: ${err.message}`);
+    } finally {
+      setIsSavingBody(false);
+    }
+  };
+
+  const lessonRecords = channelNotes.filter(n => n.kind === '차시기록');
+  const progressNotes = channelNotes.filter(n => n.kind === '진도');
+
   const workspacePath = workspaceDir || channel?.workspace_dir || (
     channel?.type === 'all' || channel?.id === 'general'
       ? 'data/workspaces/_공통/'
-      : `data/workspaces/${(channel?.name || '').replace(/\s+/g, '_')}/1과`
+      : `data/workspaces/${(channel?.name || '').replace(/\s+/g, '_')}/${selectedUnit}`
   );
 
   return (
@@ -127,85 +176,112 @@ export default function RightPanel({
           </div>
         )}
 
-        {/* Tab 2: 수업 맥락 */}
-        {activeTab === 'context' && contextNote && (
-          <div className="space-y-3">
-            <div>
-              <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
-                현재 수업 맥락
-              </span>
-              <h3 className="text-sm font-bold text-slate-900 mt-1">
-                {contextNote.course} · {contextNote.unit}
-              </h3>
+        {/* Tab 2: 수업 맥락 (Phase 3 실데이터 연동) */}
+        {activeTab === 'context' && (
+          <div className="space-y-3.5">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+              <div>
+                <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
+                  과목 및 단원
+                </span>
+                <h3 className="text-sm font-bold text-slate-900">
+                  {channel?.name || '영어I'}
+                </h3>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <select
+                  value={selectedUnit}
+                  onChange={(e) => setSelectedUnit(e.target.value)}
+                  className="text-xs bg-slate-50 border border-slate-200 rounded px-2 py-1 font-medium text-slate-700 focus:outline-none focus:border-indigo-500"
+                >
+                  <option value="1과">1과</option>
+                  <option value="2과">2과</option>
+                  <option value="3과">3과</option>
+                  <option value="4과">4과</option>
+                  <option value="5과">5과</option>
+                </select>
+              </div>
             </div>
 
-            <div className="bg-slate-50 rounded-card p-3 border border-slate-200 space-y-3 text-xs">
-              <div>
-                <span className="font-semibold text-slate-700 block mb-1">진도 현황</span>
-                <div className="text-slate-600 font-medium bg-white px-2.5 py-1.5 rounded border border-slate-200">
-                  {contextNote.progress}
-                </div>
+            {/* 단원 본문 편집 카드 */}
+            <div className="bg-slate-50 rounded-card p-3 border border-slate-200 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-xs text-slate-800 flex items-center gap-1.5">
+                  <span>📖</span>
+                  <span>{selectedUnit} 본문 내용</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={handleSaveBody}
+                  disabled={isSavingBody || !bodyText.trim()}
+                  className={`text-[11px] px-2.5 py-1 rounded font-semibold transition-all shadow-sm ${
+                    bodyText.trim()
+                      ? 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                      : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                  }`}
+                >
+                  {isSavingBody ? '저장 중...' : '본문 저장'}
+                </button>
               </div>
 
-              <div>
-                <span className="font-semibold text-slate-700 block mb-1">핵심 성취기준</span>
-                <div className="space-y-1.5">
-                  {contextNote.standards.map((std, idx) => (
-                    <div key={idx} className="bg-white p-2 rounded border border-slate-200 text-slate-600 leading-snug text-[11px]">
-                      {std}
+              {bodySaveMessage && (
+                <div className={`text-[10px] p-1.5 rounded font-medium ${
+                  bodySaveMessage.includes('실패') ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-600'
+                }`}>
+                  {bodySaveMessage}
+                </div>
+              )}
+
+              <textarea
+                value={bodyText}
+                onChange={(e) => setBodyText(e.target.value)}
+                rows={6}
+                placeholder={`${selectedUnit} 교과서 본문 텍스트를 여기에 붙여넣으세요. 평가봇·수업봇이 문항과 활동을 제작할 때 직접 참조합니다.`}
+                className="w-full text-xs p-2.5 bg-white border border-slate-200 rounded-lg text-slate-800 placeholder-slate-400 focus:outline-none focus:border-indigo-500 leading-relaxed resize-none"
+              />
+            </div>
+
+            {/* 진도 현황 */}
+            <div className="bg-slate-50 rounded-card p-3 border border-slate-200 text-xs space-y-1">
+              <span className="font-bold text-slate-700 block">진도 현황</span>
+              <div className="text-slate-600 font-medium bg-white px-2.5 py-1.5 rounded border border-slate-200">
+                {progressNotes[0]?.content || `${selectedUnit} 본문 분석 및 수행평가 진행 중`}
+              </div>
+            </div>
+
+            {/* 차시기록 (결재 승인 시 자동 누적) */}
+            <div className="bg-slate-50 rounded-card p-3 border border-slate-200 text-xs space-y-2">
+              <span className="font-bold text-slate-700 block">차시기록 (확정 내역)</span>
+              {lessonRecords.length > 0 ? (
+                <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                  {lessonRecords.map((rec) => (
+                    <div key={rec.id} className="bg-white p-2 rounded border border-slate-200 text-[11px] text-slate-600 leading-snug">
+                      <span className="font-mono text-[10px] text-indigo-600 block mb-0.5">{rec.unit}</span>
+                      {rec.content}
                     </div>
                   ))}
                 </div>
-              </div>
-
-              {contextNote.notes && (
-                <div>
-                  <span className="font-semibold text-slate-700 block mb-1">교과 메모</span>
-                  <div className="bg-white p-2.5 rounded border border-slate-200 text-slate-600 text-[11px] leading-relaxed">
-                    {contextNote.notes}
-                  </div>
+              ) : (
+                <div className="text-[11px] text-slate-400 bg-white p-2.5 rounded border border-slate-200 text-center">
+                  결재 승인된 작업이 차시기록으로 자동 누적됩니다.
                 </div>
               )}
             </div>
           </div>
         )}
 
-        {/* Tab 3: 루틴 */}
+        {/* Tab 3: 루틴 (Phase 4 준비 중) */}
         {activeTab === 'routine' && (
-          <div className="space-y-3">
-            <div>
-              <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
-                정기 자동화 루틴 (목업)
+          <div className="space-y-4">
+            <div className="p-4 rounded-card bg-indigo-50/60 border border-indigo-150 text-center">
+              <RoutineIcon className="w-8 h-8 mx-auto text-indigo-500 mb-2" />
+              <h4 className="text-xs font-bold text-indigo-900">정기 자동화 루틴</h4>
+              <span className="inline-block mt-1 px-2 py-0.5 text-[10px] font-semibold bg-indigo-100 text-indigo-700 rounded-full">
+                Phase 4 지원 예정 (준비 중)
               </span>
-              <p className="text-xs text-slate-500 mt-0.5">
-                지정된 주기마다 팀원봇이 작업을 자동 실행합니다.
+              <p className="text-[11px] text-indigo-700/80 mt-2 leading-relaxed">
+                지정된 주기(요일·시각)에 맞춰 주간 수능 문항 세트 출제, 학기말 세특 일괄 생성 등의 자동화 루틴이 제공될 예정입니다.
               </p>
-            </div>
-
-            <div className="space-y-2">
-              {routines.map((routine) => (
-                <div
-                  key={routine.id}
-                  className="p-3 rounded-card bg-slate-50 border border-slate-200 hover:border-slate-300 transition-colors"
-                >
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-xs font-bold text-slate-900">{routine.name}</span>
-                    <span
-                      className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
-                        routine.status === '활성'
-                          ? 'bg-emerald-100 text-emerald-700 border border-emerald-200'
-                          : 'bg-slate-200 text-slate-600'
-                      }`}
-                    >
-                      {routine.status}
-                    </span>
-                  </div>
-                  <div className="text-[11px] text-slate-500 flex items-center justify-between">
-                    <span>{routine.schedule}</span>
-                    <span className="text-indigo-600 font-medium">@{routine.bot}</span>
-                  </div>
-                </div>
-              ))}
             </div>
           </div>
         )}

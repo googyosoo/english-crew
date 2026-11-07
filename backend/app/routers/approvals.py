@@ -1,5 +1,6 @@
 import uuid
 import json
+from datetime import datetime
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 
@@ -93,6 +94,22 @@ async def decide_approval(
             await db.execute(
                 "UPDATE messages SET metadata_json = ? WHERE id = ?",
                 (json.dumps(meta, ensure_ascii=False), appr_msg["id"])
+            )
+
+            # 4. Phase 3: Automatically record confirmation to context_notes (kind='차시기록')
+            ch_cur = await db.execute("SELECT course_code FROM channels WHERE id = ?", (channel_id,))
+            ch_row = await ch_cur.fetchone()
+            course_code = (ch_row["course_code"] if ch_row else None) or "COMMON"
+            unit = meta.get("unit") or "1과"
+            date_str = datetime.now().strftime("%Y-%m-%d")
+            record_content = f"{date_str} · {appr['question']} (최종 확정)"
+            note_id = f"note_{uuid.uuid4().hex[:8]}"
+            await db.execute(
+                """
+                INSERT INTO context_notes (id, course_code, unit, kind, content)
+                VALUES (?, ?, ?, '차시기록', ?)
+                """,
+                (note_id, course_code, unit, record_content)
             )
 
             await db.commit()

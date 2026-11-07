@@ -60,6 +60,36 @@ export async function fetchTaskDeliverable(taskId) {
   return await res.json();
 }
 
+export async function fetchChannelContext(channelId, unit = '') {
+  const url = unit
+    ? `${API_BASE}/channels/${channelId}/context?unit=${encodeURIComponent(unit)}`
+    : `${API_BASE}/channels/${channelId}/context`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return await res.json();
+}
+
+export async function saveChannelContext(channelId, noteData) {
+  const res = await fetch(`${API_BASE}/channels/${channelId}/context`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(noteData),
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.detail || `HTTP ${res.status}`);
+  }
+  return await res.json();
+}
+
+export async function deleteChannelContext(noteId) {
+  const res = await fetch(`${API_BASE}/context/${noteId}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return await res.json();
+}
+
 export function subscribeToRequestEvents(requestId, onEvent, onError) {
   const url = `${API_BASE}/requests/${requestId}/events`;
   const eventSource = new EventSource(url);

@@ -83,6 +83,27 @@ async def init_db():
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS context_notes (
+                id TEXT PRIMARY KEY,
+                course_code TEXT NOT NULL,
+                unit TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                content TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS students (
+                id TEXT PRIMARY KEY,
+                course_code TEXT NOT NULL,
+                class_no INTEGER NOT NULL,
+                student_no INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
         await db.commit()
 
         # Seed channels if empty
@@ -101,21 +122,29 @@ async def init_db():
                 seed_channels
             )
 
-        # Seed bots if empty
+        # Seed or update bots (Phase 3: all 5 bots enabled)
+        env_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        seed_bots = [
+            ("coordinator", "코디봇", "총괄·디스패치", "backend/agents/coordinator", env_model, 1),
+            ("curriculum", "교육과정봇", "성취기준·팩트체크", "backend/agents/curriculum", env_model, 1),
+            ("lesson", "수업봇", "차시·활동 설계", "backend/agents/lesson", env_model, 1),
+            ("assessment", "평가봇", "문항·루브릭", "backend/agents/assessment", env_model, 1),
+            ("record", "기록봇", "관찰·세특", "backend/agents/record", env_model, 1),
+        ]
         cursor = await db.execute("SELECT COUNT(*) FROM bots")
         bot_count = (await cursor.fetchone())[0]
         if bot_count == 0:
-            env_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-            seed_bots = [
-                ("coordinator", "코디봇", "총괄·디스패치", "backend/agents/coordinator", env_model, 1),
-                ("curriculum", "교육과정봇", "성취기준·팩트체크", "backend/agents/curriculum", env_model, 0),
-                ("lesson", "수업봇", "차시·활동 설계", "backend/agents/lesson", env_model, 0),
-                ("assessment", "평가봇", "문항·루브릭", "backend/agents/assessment", env_model, 1),
-                ("record", "기록봇", "관찰·세특", "backend/agents/record", env_model, 0),
-            ]
             await db.executemany(
                 "INSERT INTO bots (id, name, role, prompt_dir, model, enabled) VALUES (?, ?, ?, ?, ?, ?)",
                 seed_bots
             )
+        else:
+            # Enable all 5 bots for Phase 3
+            await db.execute("UPDATE bots SET enabled = 1")
+            for b in seed_bots:
+                await db.execute(
+                    "INSERT OR IGNORE INTO bots (id, name, role, prompt_dir, model, enabled) VALUES (?, ?, ?, ?, ?, ?)",
+                    b
+                )
 
         await db.commit()

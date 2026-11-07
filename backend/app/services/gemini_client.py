@@ -31,7 +31,7 @@ EXCLUDED_PROMPT_FILES = {
 }
 
 # Retry delays for 503 (UNAVAILABLE) and 429 (RESOURCE_EXHAUSTED) errors
-RETRY_DELAYS = [2.0, 5.0, 10.0]
+RETRY_DELAYS = [3.0, 8.0, 15.0]
 
 def load_bot_instructions(bot_id: str) -> str:
     """
@@ -73,7 +73,8 @@ async def create_dispatch_plan(
     content: str,
     channel_info: Dict[str, Any],
     active_bots: List[Dict[str, Any]],
-    reject_reason: Optional[str] = None
+    reject_reason: Optional[str] = None,
+    context_notes: Optional[List[Dict[str, Any]]] = None
 ) -> DispatchPlan:
     cfg = get_gemini_config()
     api_key = cfg["api_key"]
@@ -90,18 +91,29 @@ async def create_dispatch_plan(
     ]
     bots_desc = "\n".join(active_bot_lines)
 
-    user_prompt = f"""[교사 요청]
-과목 채널: {channel_info.get('name', '영어I')}
-요청 내용: {content}
+    context_section = ""
+    if context_notes:
+        note_lines = []
+        for n in context_notes:
+            note_lines.append(f"- [{n.get('kind', '메모')}] (단원: {n.get('unit', '')}):\n{n.get('content', '')}")
+        context_section = f"\n[현재 채널의 수업 맥락 및 본문 자료]\n" + "\n".join(note_lines) + "\n"
 
+    user_prompt = f"""[교사 요청]
+과목 채널: {channel_info.get('name', '영어I')} (타입: {channel_info.get('type', 'course')}, 코드: {channel_info.get('course_code', '')})
+요청 내용: {content}
+{context_section}
 [현재 활성화된 배정 가능 팀원봇 목록 (이 목록에 있는 봇 ID만 배정해야 합니다)]
 {bots_desc}
 
-[주의사항]
-1. 과업은 1~4개로 분해하십시오. 특히 동일 문항에 대한 '문항 출제'와 '채점 루브릭'은 하나의 과업으로 묶으십시오(나누지 마십시오).
-2. 각 과업의 bot 필드는 반드시 위 활성 봇 목록의 bot_id 중 하나여야 합니다. 비활성 봇에게 배정하지 마십시오.
-3. 산출물(deliverable)은 구체적인 분량과 형태를 명시하십시오.
-4. approval_question은 교사가 '예/아니오'로 답할 수 있는 결재 질문이어야 합니다.
+[과업 분해 및 디스패치 주의사항]
+1. 과업은 1~4개로 분해하십시오.
+   - 문항 출제 및 평가 설계 요청 시, 반드시 교육과정봇(curriculum)이 성취기준과 평가 요소를 먼저 도출하도록 선행 과업으로 배정하십시오 (depends_on=[]).
+   - 평가봇(assessment)과 수업봇(lesson)은 교육과정봇의 산출물을 활용하므로 depends_on: ["curriculum"]을 명시하십시오.
+   - 동일 문항에 대한 '문항 출제'와 '채점 루브릭'은 하나의 과업으로 묶으십시오(나누지 마십시오).
+2. 전체 교무회의(all) 채널에서 과목(영어I, 심화영어I 등)을 특정할 수 없다면, tasks를 비우고 clarification 필드에 교사에게 과목을 되묻는 정중한 안내 문장을 작성하십시오.
+3. 각 과업의 bot 필드는 반드시 위 활성 봇 목록의 bot_id 중 하나여야 합니다.
+4. 산출물(deliverable)은 구체적인 분량과 형태를 명시하십시오.
+5. approval_question은 교사가 '예/아니오'로 답할 수 있는 결재 질문이어야 합니다.
 """
 
     if reject_reason:
@@ -136,7 +148,9 @@ async def execute_bot_task(
     deliverable: str,
     course_name: str,
     unit: str,
-    teacher_request: str
+    teacher_request: str,
+    extra_context: Optional[str] = None,
+    feedback_instructions: Optional[str] = None
 ) -> str:
     cfg = get_gemini_config()
     api_key = cfg["api_key"]
@@ -148,13 +162,21 @@ async def execute_bot_task(
     client = genai.Client(api_key=api_key)
     system_instruction = load_bot_instructions(bot_id)
 
+    extra_section = ""
+    if extra_context:
+        extra_section = f"\n[선행 과업 산출물 및 참고 맥락 자료]\n{extra_context}\n"
+
+    feedback_section = ""
+    if feedback_instructions:
+        feedback_section = f"\n[이전 산출물 검사 피드백 및 수정 지침]\n{feedback_instructions}\n위 지침을 반드시 준수하여 지적된 오류를 완벽히 수정해 다시 작성하십시오.\n"
+
     prompt = f"""[작업 요청]
 과목: {course_name}
 단원: {unit}
 과업 제목: {title}
 요청 산출물: {deliverable}
 교사 원문 요청: {teacher_request}
-
+{extra_section}{feedback_section}
 위 요청에 따라 전문 영역 기준에 부합하는 완성된 Markdown 결과물을 생성하시오.
 불필요한 서두나 잡담 없이 바로 산출물 본문을 출력하시오.
 """

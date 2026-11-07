@@ -51,32 +51,51 @@ export default function ReportCard({ message, onSelectDeliverable, onRetryReques
               const title = item.title || item.text || '작업 항목';
               const isFailed = item.status === 'failed';
               const isDone = item.status === 'done';
+              const checkInfo = item.check_info;
 
               return (
                 <div
                   key={item.task_id || item.id || idx}
                   onClick={() => onSelectDeliverable && onSelectDeliverable(item)}
-                  className={`flex items-center justify-between p-2 rounded-lg bg-slate-50 border border-slate-150 text-sm transition-all ${
+                  className={`p-2 rounded-lg bg-slate-50 border border-slate-150 text-sm transition-all ${
                     onSelectDeliverable ? 'cursor-pointer hover:bg-emerald-50/50 hover:border-emerald-200' : ''
                   }`}
                 >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className={`w-4 h-4 rounded-full flex items-center justify-center shrink-0 text-xs ${
-                      isFailed ? 'bg-rose-100 text-rose-600' : 'bg-emerald-100 text-emerald-600'
-                    }`}>
-                      {isFailed ? '✕' : <CheckIcon className="w-3 h-3 text-emerald-600" />}
-                    </span>
-                    <span className="font-medium text-slate-800 shrink-0">@{botDisplayName}</span>
-                    <span className="text-slate-400">→</span>
-                    <span className="text-slate-600 truncate">{title}</span>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className={`w-4 h-4 rounded-full flex items-center justify-center shrink-0 text-xs ${
+                        isFailed ? 'bg-rose-100 text-rose-600' : 'bg-emerald-100 text-emerald-600'
+                      }`}>
+                        {isFailed ? '✕' : <CheckIcon className="w-3 h-3 text-emerald-600" />}
+                      </span>
+                      <span className="font-medium text-slate-800 shrink-0">@{botDisplayName}</span>
+                      <span className="text-slate-400">→</span>
+                      <span className="text-slate-600 truncate">{title}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                      {checkInfo && (
+                        <span className={`px-2 py-0.5 text-[10px] font-semibold rounded-full border ${
+                          checkInfo.passed
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            : 'bg-amber-50 text-amber-700 border-amber-200'
+                        }`}>
+                          {checkInfo.passed ? '검사 통과' : '수정 필요'}
+                        </span>
+                      )}
+                      <span className={`px-2 py-0.5 text-xs font-semibold rounded-full border ${
+                        isFailed
+                          ? 'bg-rose-50 text-rose-700 border-rose-200'
+                          : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      }`}>
+                        {isFailed ? '실패' : isDone ? '완료' : '검토완료'}
+                      </span>
+                    </div>
                   </div>
-                  <span className={`px-2 py-0.5 text-xs font-semibold rounded-full border shrink-0 ml-2 ${
-                    isFailed
-                      ? 'bg-rose-50 text-rose-700 border-rose-200'
-                      : 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                  }`}>
-                    {isFailed ? '실패' : isDone ? '완료' : '검토완료'}
-                  </span>
+                  {checkInfo && !checkInfo.passed && checkInfo.issues?.length > 0 && (
+                    <div className="mt-1 text-[11px] text-amber-700 bg-amber-50/80 p-1.5 rounded border border-amber-200/80">
+                      ⚠️ {checkInfo.status_label}
+                    </div>
+                  )}
                 </div>
               );
             })}

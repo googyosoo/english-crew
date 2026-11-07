@@ -69,41 +69,55 @@ export default function ChatArea({
 
       {/* Messages Scroll Area */}
       <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
-        {messages.map((msg) => {
-          switch (msg.type) {
-            case 'dispatch':
-              return (
-                <DispatchCard
-                  key={msg.id}
-                  message={msg}
-                  onSelectDeliverable={onSelectDeliverable}
-                />
-              );
-            case 'approval':
-              return (
-                <ApprovalCard
-                  key={msg.id}
-                  message={msg}
-                  onApprovalDecision={onApprovalDecision}
-                />
-              );
-            case 'report':
-              return (
-                <ReportCard
-                  key={msg.id}
-                  message={msg}
-                  onSelectDeliverable={onSelectDeliverable}
-                  onRetryRequest={onRetryRequest}
-                />
-              );
-            case 'user':
-            case 'teacher':
-            case 'bot_text':
-            case 'text':
-            default:
-              return <TextMessage key={msg.id} message={msg} />;
-          }
-        })}
+        {messages.length === 0 ? (
+          <div className="h-full min-h-[320px] flex flex-col items-center justify-center text-center p-8 text-slate-400">
+            <div className="w-12 h-12 rounded-full bg-indigo-50 border border-indigo-100 flex items-center justify-center text-xl mb-3 text-indigo-500">
+              💬
+            </div>
+            <p className="text-sm font-semibold text-slate-700">
+              {channel?.name ? `${channel.name} 채널에 아직 메시지가 없습니다` : '메시지가 없습니다'}
+            </p>
+            <p className="text-xs text-slate-400 mt-1.5 max-w-md leading-relaxed">
+              수업 차시 설계, 교육과정 성취기준 매핑, 논술형 문항 및 채점 루브릭 제작, 학생 세특 작성 등 필요한 교과 업무를 아래 입력창에 입력해 주세요.
+            </p>
+          </div>
+        ) : (
+          messages.map((msg) => {
+            switch (msg.type) {
+              case 'dispatch':
+                return (
+                  <DispatchCard
+                    key={msg.id}
+                    message={msg}
+                    onSelectDeliverable={onSelectDeliverable}
+                  />
+                );
+              case 'approval':
+                return (
+                  <ApprovalCard
+                    key={msg.id}
+                    message={msg}
+                    onApprovalDecision={onApprovalDecision}
+                  />
+                );
+              case 'report':
+                return (
+                  <ReportCard
+                    key={msg.id}
+                    message={msg}
+                    onSelectDeliverable={onSelectDeliverable}
+                    onRetryRequest={onRetryRequest}
+                  />
+                );
+              case 'user':
+              case 'teacher':
+              case 'bot_text':
+              case 'text':
+              default:
+                return <TextMessage key={msg.id} message={msg} />;
+            }
+          })
+        )}
 
         {/* Live Status Message (Processing indicator) */}
         {statusMessage && (
