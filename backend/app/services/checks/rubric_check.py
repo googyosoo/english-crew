@@ -1,15 +1,18 @@
 import re
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Optional, Set
+from backend.app.services.checks.curriculum_check import get_allowed_curriculum_codes, normalize_code
 
-# 정도 부사 목록
-DEGREE_ADVERBS = ["매우", "완벽하게", "잘", "다소", "대체로", "거의", "충분히", "명확하게"]
-
-# 관찰 가능한 객관적 기준 키워드 (개수, 조건, 빈도 등)
-OBSERVABLE_CRITERIA_KEYWORDS = [
-    "개", "단어", "회", "이상", "이하", "미만", "초과",
-    "포함", "미포함", "오류", "오자", "문장", "조건",
-    "누락", "제시함", "제시하지", "모두", "각각"
+# 확장된 정도 표현 목록 (22개)
+DEGREE_EXPRESSIONS = [
+    "매우", "완벽하게", "잘", "다소", "대체로", "거의", "충분히", "명확하게", "정확히", "적절히",
+    "효과적으로", "미흡", "모호", "상당", "빈번", "다수", "약간", "부분적", "비교적", "대략적",
+    "우수", "탁월"
 ]
+
+# 관찰 가능한 정량 기준 정규식: "숫자+단위(개/회/문장/단어/가지/점)" 또는 "조건 n개 중 m개"
+QUANTITATIVE_PATTERN = re.compile(
+    r"(\d+\s*(?:개|회|문장|단어|가지|점)|조건\s*\d+\s*개\s*중\s*\d+\s*개|\d+\s*개\s*(?:이상|이하|미만|초과)|\d+\s*가지\s*(?:이상|이하|미만|초과)|전무함|0개)"
+)
 
 class RubricCheckResult:
     def __init__(self, passed: bool, issues: List[str]):
@@ -20,7 +23,7 @@ class RubricCheckResult:
     def status_label(self) -> str:
         if self.passed:
             return "통과"
-        return f"수정 필요: {'; '.join(self.issues)}"
+        return f"수정 필요 ({len(self.issues)}건)"
 
     def to_dict(self) -> dict:
         return {
@@ -30,53 +33,75 @@ class RubricCheckResult:
         }
 
 
-def check_rubric_adverbs(content: str) -> List[str]:
+def check_rubric_quantitative_cells(content: str) -> List[str]:
     """
-    루브릭 표 내에서 관찰 가능한 기준 없이 정도 부사만으로 수준을 구분한 셀이 있는지 검사합니다.
+    각 수준 칸은 '숫자+단위(개/회/문장/단어)' 또는 '조건 n개 중 m개' 형태의 기준을 1개 이상 포함해야 통과.
+    정도 표현이 있으면 그것만으로는 불가.
     """
     issues = []
     lines = content.splitlines()
-    in_table = False
 
     for idx, line in enumerate(lines):
         line_str = line.strip()
-        if line_str.startswith("|") and line_str.endswith("|"):
-            in_table = True
-            cells = [c.strip() for c in line_str.split("|")[1:-1]]
-            # 헤더 구분선 제외 (---)
-            if any("---" in c for c in cells):
-                continue
-            # 헤더 행 제외
-            if any("평가요소" in c or "수준" in c or "배점" in c for c in cells):
+        if not (line_str.startswith("|") and line_str.endswith("|")):
+            continue
+
+        cells = [c.strip() for c in line_str.split("|")[1:-1]]
+        if not cells or any("---" in c for c in cells):
+            continue
+
+        # Skip header rows
+        first_cell = cells[0]
+        first_clean = first_cell.replace(" ", "")
+        if any(h in first_clean for h in ["평가요소", "수준", "배점", "영역", "항목", "구분"]):
+            continue
+
+        # Check each level cell (usually index 1 onwards)
+        for cell_idx, cell in enumerate(cells[1:], start=2):
+            if not cell:
                 continue
 
-            for cell_idx, cell in enumerate(cells):
-                if not cell:
-                    continue
-                # 셀 안에 정도 부사가 들어있는지 확인
-                found_adverbs = [adv for adv in DEGREE_ADVERBS if adv in cell]
-                if found_adverbs:
-                    # 관찰 가능한 객관적 지표(숫자, 개수, 조건, 오류 등)가 전혀 없는지 확인
-                    has_observable = any(kw in cell for kw in OBSERVABLE_CRITERIA_KEYWORDS) or bool(re.search(r"\d+", cell))
-                    if not has_observable:
-                        issues.append(
-                            f"루브릭 {idx+1}행 {cell_idx+1}번째 칸에 객관적 지표 없이 정도 부사('{', '.join(found_adverbs)}')만으로 수준을 서술함: \"{cell[:30]}...\""
-                        )
-        else:
-            in_table = False
+            has_quant = bool(QUANTITATIVE_PATTERN.search(cell))
+            found_degrees = [deg for deg in DEGREE_EXPRESSIONS if deg in cell]
+
+            # Rule: must have quantitative criteria, degree words alone are forbidden
+            if not has_quant:
+                if found_degrees:
+                    issues.append(
+                        f"루브릭 {idx+1}행 {cell_idx}번째 칸에 객관적 정량 기준 없이 정도 표현('{', '.join(found_degrees)}')만 사용됨: \"{cell[:35]}...\""
+                    )
+                else:
+                    issues.append(
+                        f"루브릭 {idx+1}행 {cell_idx}번째 칸에 관찰 가능한 수량 기준(숫자+단위 또는 조건 n개 중 m개)이 누락됨: \"{cell[:35]}...\""
+                    )
 
     return issues
 
 
-def check_rubric_scores(content: str) -> List[str]:
+def check_rubric_scores_and_deductions(content: str) -> List[str]:
     """
-    평가요소별 배점과 수준별 점수가 일치하고 적합한지 검사합니다.
-    (예: 8점 요소면 수준 점수가 8/6/4/2 형태 등)
+    1. 각 평가요소 행에 수준별 점수가 모두 있어야 하고, 최고점 합계 = 총점일 것.
+    2. 별도 감점 규정과 중복 금지.
     """
     issues = []
     lines = content.splitlines()
 
-    header_scores = []
+    # Detect declared total score in metadata (e.g., '10점 만점' or '배점: 10점')
+    declared_total = None
+    tot_match = re.search(r"(?:배점|총점)[:\s]*(\d+)\s*점", content)
+    if tot_match:
+        declared_total = int(tot_match.group(1))
+
+    # Detect duplicate deduction section
+    if re.search(r"#{2,}\s*(?:\d+\.\s*)?(?:감점\s*규정|감점\s*기준|채점\s*및\s*감점)", content):
+        # If the content contains separate deduction rules like '-1점 감점'
+        if re.search(r"-\d+(?:\.\d+)?\s*점\s*감점|\d+\s*점\s*감점", content):
+            issues.append(
+                "별도 감점 규정과 루브릭 평가요소가 중복됩니다. 별도 감점 규정을 배제하고 루브릭 수준별 배점으로 일원화해야 합니다."
+            )
+
+    row_max_scores = []
+    in_rubric_table = False
 
     for idx, line in enumerate(lines):
         line_str = line.strip()
@@ -88,65 +113,65 @@ def check_rubric_scores(content: str) -> List[str]:
             continue
 
         first_cell = cells[0]
-
-        # 1. 헤더 행인 경우 수준별 점수 추출
-        if any(h in first_cell for h in ["평가요소", "영역", "항목", "기준"]):
-            header_scores = []
-            for cell in cells[1:]:
-                sm = re.search(r"(\d+)\s*점", cell)
-                if sm:
-                    header_scores.append(int(sm.group(1)))
+        first_clean = first_cell.replace(" ", "")
+        if any(h in first_clean for h in ["평가요소", "수준", "배점", "영역", "항목", "구분"]):
+            in_rubric_table = True
             continue
 
-        # 2. 데이터 행인 경우 요소 배점 추출 (예: '내용 및 아이디어 (8점)' 또는 '[8점]')
-        max_score_match = re.search(r"\((\d+)\s*점\)|\[(\d+)\s*점\]|(\d+)\s*점", first_cell)
-        if not max_score_match:
+        if not in_rubric_table:
             continue
 
-        max_score = int(max_score_match.group(1) or max_score_match.group(2) or max_score_match.group(3))
-
-        # 뒤따르는 수준별 셀에서 점수 형태 검출 (예: '8점' 등)
-        cell_scores = []
+        # Extract scores from all level cells in this row
+        row_scores = []
         for cell in cells[1:]:
-            score_match = re.search(r"(\d+)\s*점", cell)
-            if score_match:
-                cell_scores.append(int(score_match.group(1)))
+            sm = re.search(r"(\d+)\s*점", cell)
+            if sm:
+                row_scores.append(int(sm.group(1)))
 
-        eval_scores = cell_scores if cell_scores else header_scores
+        if not row_scores:
+            issues.append(
+                f"루브릭 {idx+1}행({first_cell[:20]})에 각 수준별 점수(숫자+점)가 명시되지 않았습니다."
+            )
+            continue
 
-        if eval_scores:
-            if eval_scores[0] != max_score:
+        # Check descending order
+        for i in range(len(row_scores) - 1):
+            if row_scores[i] <= row_scores[i+1]:
                 issues.append(
-                    f"평가요소 배점({max_score}점)과 수준 점수 최고점({eval_scores[0]}점)이 불일치합니다 (행: {first_cell})"
+                    f"루브릭 {idx+1}행({first_cell[:20]})의 수준별 점수가 내림차순이 아닙니다: {row_scores}"
                 )
-            # 내림차순 검사
-            for i in range(len(eval_scores) - 1):
-                if eval_scores[i] <= eval_scores[i+1]:
-                    issues.append(
-                        f"수준별 점수가 내림차순으로 올바르게 배정되지 않았습니다: {eval_scores}"
-                    )
-                    break
+                break
+
+        row_max_scores.append(row_scores[0])
+
+    # Check sum of max scores == declared total
+    if declared_total is not None and row_max_scores:
+        sum_max = sum(row_max_scores)
+        if sum_max != declared_total:
+            issues.append(
+                f"루브릭 평가요소 최고점 합계({sum_max}점)가 선언된 총점({declared_total}점)과 일치하지 않습니다."
+            )
 
     return issues
 
 
-def check_curriculum_codes(content: str, allowed_codes: Optional[List[str]] = None) -> List[str]:
+def check_curriculum_codes(content: str) -> List[str]:
     """
-    평가봇 산출물에 기재된 성취기준 코드가 교육과정봇이 도출한 코드 목록에 존재하는지 검사합니다.
+    산출물에 기재된 모든 성취기준 코드가 english_2022.jsonl에 실재하는지 검사합니다.
     """
+    allowed_codes = get_allowed_curriculum_codes()
     if not allowed_codes:
         return []
 
     issues = []
-    # 코드 패턴: [12영I-01-01], [10영01-01], [12공영1-01-01] 등
-    found_codes = re.findall(r"\[([0-9]{2}[가-힣A-Za-z0-9-]+)\]", content)
+    found_codes = re.findall(r"\[([0-9]{2}[가-힣A-Za-z0-9ⅠⅡⅰⅱ-]+)\]", content)
     unique_found = set(found_codes)
-    clean_allowed = {c.strip("[]") for c in allowed_codes}
 
     for code in unique_found:
-        if code not in clean_allowed:
+        norm = normalize_code(code)
+        if code not in allowed_codes and norm not in allowed_codes:
             issues.append(
-                f"교육과정봇이 승인하지 않은 성취기준 코드 [{code}]를 임의로 인용했습니다 (허용 코드: {list(clean_allowed)})"
+                f"공인 교육과정 jsonl에 존재하지 않는 성취기준 코드 [{code}]가 인용되었습니다."
             )
 
     return issues
@@ -158,17 +183,17 @@ def check_rubric(content: str, allowed_codes: Optional[List[str]] = None) -> Rub
     """
     issues = []
 
-    # 1. 정도 부사만으로 수준 구분 검사
-    adverb_issues = check_rubric_adverbs(content)
-    issues.extend(adverb_issues)
+    # 1. 수량 기준 누락 및 정도 표현 검사
+    quant_issues = check_rubric_quantitative_cells(content)
+    issues.extend(quant_issues)
 
-    # 2. 배점 및 점수 일관성 검사
-    score_issues = check_rubric_scores(content)
+    # 2. 수준별 점수 및 감점 규정 중복 검사
+    score_issues = check_rubric_scores_and_deductions(content)
     issues.extend(score_issues)
 
-    # 3. 성취기준 코드 정합성 검사
-    code_issues = check_curriculum_codes(content, allowed_codes)
+    # 3. 공인 교육과정 jsonl 기준 코드 검사
+    code_issues = check_curriculum_codes(content)
     issues.extend(code_issues)
 
-    passed = len(issues) == 0
+    passed = (len(issues) == 0)
     return RubricCheckResult(passed=passed, issues=issues)

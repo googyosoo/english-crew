@@ -23,6 +23,7 @@ from backend.app.services.event_bus import event_bus
 from backend.app.services.anonymizer import anonymize_text, deanonymize_text
 from backend.app.services.checks.rubric_check import check_rubric
 from backend.app.services.checks.seteuk_check import check_seteuk
+from backend.app.services.checks.curriculum_check import check_curriculum, get_course_standards_text
 
 logger = logging.getLogger(__name__)
 
@@ -331,6 +332,13 @@ async def process_teacher_request(
 
             await event_bus.publish(request_id, "task_update", {"task_id": t_id, "status": "running"})
 
+            # Prepare specific context for curriculum bot: inject official course standards
+            effective_extra = extra_ctx
+            if bot_id == "curriculum":
+                standards_text = get_course_standards_text(channel_info["name"], channel_id=channel_id)
+                if standards_text:
+                    effective_extra = f"{effective_extra}\n\n{standards_text}\n"
+
             try:
                 # 1st attempt
                 raw_output = await execute_bot_task(
@@ -340,14 +348,33 @@ async def process_teacher_request(
                     course_name=channel_info["name"],
                     unit=unit,
                     teacher_request=anonymized_content,
-                    extra_context=extra_ctx
+                    extra_context=effective_extra
                 )
 
                 check_info = None
 
-                # Rule 4 & 5: Rubric Check for assessment bot
-                if bot_id == "assessment":
-                    check_res = check_rubric(raw_output, allowed_codes=curriculum_codes)
+                # Rule 2: Curriculum Check for curriculum bot
+                if bot_id == "curriculum":
+                    check_res = check_curriculum(raw_output)
+                    if not check_res.passed:
+                        logger.warning(f"Curriculum output check failed: {check_res.issues}. Triggering 1-time retry...")
+                        feedback_prompt = f"다음 교육과정 성취기준 검사 지적 사항을 반드시 수정하여 다시 작성하십시오:\n- " + "\n- ".join(check_res.issues)
+                        raw_output = await execute_bot_task(
+                            bot_id=bot_id,
+                            title=title,
+                            deliverable=deliverable,
+                            course_name=channel_info["name"],
+                            unit=unit,
+                            teacher_request=anonymized_content,
+                            extra_context=effective_extra,
+                            feedback_instructions=feedback_prompt
+                        )
+                        check_res = check_curriculum(raw_output)
+                    check_info = check_res.to_dict()
+
+                # Rule 3: Rubric Check for assessment bot
+                elif bot_id == "assessment":
+                    check_res = check_rubric(raw_output)
                     if not check_res.passed:
                         # 1-time automatic self-healing retry!
                         logger.warning(f"Assessment output check failed: {check_res.issues}. Triggering 1-time retry...")
@@ -359,14 +386,14 @@ async def process_teacher_request(
                             course_name=channel_info["name"],
                             unit=unit,
                             teacher_request=anonymized_content,
-                            extra_context=extra_ctx,
+                            extra_context=effective_extra,
                             feedback_instructions=feedback_prompt
                         )
                         # Re-check after retry
-                        check_res = check_rubric(raw_output, allowed_codes=curriculum_codes)
+                        check_res = check_rubric(raw_output)
                     check_info = check_res.to_dict()
 
-                # Rule 6: Seteuk Check for record bot
+                # Rule 5: Seteuk Check for record bot
                 elif bot_id == "record":
                     check_res = check_seteuk(raw_output)
                     check_info = check_res.to_dict()

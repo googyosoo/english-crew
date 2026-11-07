@@ -97,12 +97,28 @@ async def decide_approval(
             )
 
             # 4. Phase 3: Automatically record confirmation to context_notes (kind='차시기록')
+            # Phase 3 Requirement 7: 차시기록 unit은 요청의 unit을 그대로 사용, 내용은 코디봇 요약 첫 줄
             ch_cur = await db.execute("SELECT course_code FROM channels WHERE id = ?", (channel_id,))
             ch_row = await ch_cur.fetchone()
             course_code = (ch_row["course_code"] if ch_row else None) or "COMMON"
             unit = meta.get("unit") or "1과"
-            date_str = datetime.now().strftime("%Y-%m-%d")
-            record_content = f"{date_str} · {appr['question']} (최종 확정)"
+
+            # Retrieve coordinator summary from report message
+            rep_cur = await db.execute(
+                "SELECT content, metadata_json FROM messages WHERE channel_id = ? AND type = 'report' AND metadata_json LIKE ? ORDER BY created_at DESC LIMIT 1",
+                (channel_id, f"%{request_id}%")
+            )
+            rep_row = await rep_cur.fetchone()
+            summary_first_line = ""
+            if rep_row:
+                meta_rep = json.loads(rep_row["metadata_json"] or "{}")
+                summary_text = meta_rep.get("summary") or rep_row["content"] or ""
+                summary_first_line = summary_text.strip().splitlines()[0] if summary_text.strip() else ""
+
+            if not summary_first_line:
+                summary_first_line = appr["question"]
+
+            record_content = summary_first_line
             note_id = f"note_{uuid.uuid4().hex[:8]}"
             await db.execute(
                 """

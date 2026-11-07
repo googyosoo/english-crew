@@ -20,22 +20,17 @@ PROHIBITED_PATTERNS = [
 
 def calculate_neis_bytes(text: str) -> int:
     """
-    NEIS 공식 바이트 산출:
-    - 한글 1자 = 3바이트
-    - 영문, 숫자, 공백, 특수문자 = 1바이트
-    - 줄바꿈(\\r\\n) = 2바이트
+    seteuk-check/scripts/byte_counter.py 와 100% 동일한 NEIS 바이트 계산:
+    - 한글 완성형('가' <= ch <= '힣')만 3바이트
+    - 나머지(영문, 숫자, 공백, 특수문자, 줄바꿈 포함)는 1바이트
     """
-    # 끝 줄바꿈 제외
-    normalized = text.rstrip("\r\n").replace("\r\n", "\n").replace("\r", "\n")
-    byte_count = 0
-    for char in normalized:
-        if char == "\n":
-            byte_count += 2
-        elif ord(char) > 127:
-            byte_count += 3
+    total = 0
+    for ch in text:
+        if "가" <= ch <= "힣":
+            total += 3
         else:
-            byte_count += 1
-    return byte_count
+            total += 1
+    return total
 
 class SeteukCheckResult:
     def __init__(self, passed: bool, bytes_count: int, issues: List[str]):
@@ -72,10 +67,32 @@ def check_seteuk(text: str) -> SeteukCheckResult:
             matched_samples = list(set(matches))[:3]
             issues.append(f"{reason} (발견: {', '.join(str(m) for m in matched_samples)})")
 
-    # 3. 문장 서두 학생 이름 주어 서술 검사
+    # 3. 특수기호 서식 금지: 가운데점(·), 물결표(~), 괄호 병기
+    if "·" in text:
+        issues.append("가운데점(·) 사용 금지: 쉼표(,)나 '와/과'로 대체하십시오.")
+
+    if "~" in text:
+        issues.append("물결표(~) 사용 금지: 하이픈(-)이나 '에서/까지'로 대체하십시오.")
+
+    # 괄호 병기 금지: 예: (리처드 도킨스), (지구온난화) 등 괄호로 부가 설명 병기하는 행위
+    paren_matches = re.findall(r"\([가-힣A-Za-z0-9\s,._-]+\)", text)
+    if paren_matches:
+        issues.append(f"괄호 병기 금지: 부가 설명이나 외래어 병기 괄호를 삭제하고 문장으로 풀어서 서술하십시오 (발견: {', '.join(paren_matches[:2])})")
+
+    # 4. 명사형 종결 검사
+    # 마침표(.)나 줄바꿈으로 구분된 문장별로 검사
+    sentences = [s.strip() for s in re.split(r"[.\n]+", text) if s.strip()]
+    for s in sentences:
+        # 끝 문자가 명사형 종결(함, 음, 임, 됨, 봄, 보임, 확인 등)인지 검사
+        last_word = s.split()[-1] if s.split() else ""
+        if last_word.endswith("다") or last_word.endswith("었다") or last_word.endswith("했다") or last_word.endswith("한다") or last_word.endswith("합니다") or last_word.endswith("이다"):
+            issues.append(f"명사형 종결 위반: 모든 문장은 '~함', '~음', '~임', '~보임' 등 명사형으로 종결해야 합니다 (발견: '{last_word}')")
+            break
+
+    # 5. 문장 서두 학생 이름 주어 서술 검사
     first_line = text.strip().splitlines()[0] if text.strip() else ""
     if re.match(r"^[가-힣]{2,4}[은는이가]\s+", first_line):
         issues.append("문장 서두에 학생 이름을 주어로 서술함 (구체적 활동으로 시작할 것)")
 
-    passed = len(issues) == 0
+    passed = (len(issues) == 0)
     return SeteukCheckResult(passed=passed, bytes_count=bytes_count, issues=issues)
