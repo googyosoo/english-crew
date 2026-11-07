@@ -147,6 +147,32 @@ def test_rubric_check_logic():
     assert v_res.passed, f"올바른 정량 루브릭이 실패했습니다: {v_res.issues}"
     print("PASS: Valid quantitative rubric passed successfully!")
 
+    # 3. New Specific Regression Fixture (a): Must FAIL (degree adverbs with score suffix)
+    fixture_a = """
+# 루브릭 검사 (a)
+총점: 4점
+
+| 평가 요소 | 수준 4 | 수준 3 | 수준 2 | 수준 1 |
+|:---|:---|:---|:---|:---|
+| 내용 (4점) | 핵심 내용을 매우 정확하게 이해함 (4점) | 대체로 이해함 (3점) | 부분적으로 이해함 (2점) | 거의 이해하지 못함 (1점) |
+"""
+    res_a = check_rubric(fixture_a)
+    assert not res_a.passed, "회귀 픽스처 (a)가 실패하지 않고 통과되었습니다 (점수 표기 우회 방어 실패)!"
+    print("PASS: Regression fixture (a) correctly rejected (score suffix did not bypass degree checks):", res_a.issues)
+
+    # 4. New Specific Regression Fixture (b): Must PASS (genuine quantitative counts with score suffix)
+    fixture_b = """
+# 루브릭 검사 (b)
+총점: 4점
+
+| 평가 요소 | 수준 4 | 수준 3 | 수준 2 | 수준 1 |
+|:---|:---|:---|:---|:---|
+| 내용 (4점) | 본문 근거 3개 이상 제시 (4점) | 본문 근거 2개 제시 (3점) | 본문 근거 1개 제시 (2점) | 본문 근거 0개 (1점) |
+"""
+    res_b = check_rubric(fixture_b)
+    assert res_b.passed, f"회귀 픽스처 (b)가 통과하지 못했습니다: {res_b.issues}"
+    print("PASS: Regression fixture (b) passed 100% cleanly!")
+
 
 def test_seteuk_check_and_byte_counter_3_cases():
     # Verify byte counting against byte_counter.py logic

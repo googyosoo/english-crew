@@ -9,9 +9,14 @@ DEGREE_EXPRESSIONS = [
     "우수", "탁월"
 ]
 
-# 관찰 가능한 정량 기준 정규식: "숫자+단위(개/회/문장/단어/가지/점)" 또는 "조건 n개 중 m개"
+# 관찰 가능한 정량 기준 정규식: "숫자+단위(개/회/문장/단어/가지)" 또는 "조건 n개 중 m개" (단위 목록에서 '점' 제외)
 QUANTITATIVE_PATTERN = re.compile(
-    r"(\d+\s*(?:개|회|문장|단어|가지|점)|조건\s*\d+\s*개\s*중\s*\d+\s*개|\d+\s*개\s*(?:이상|이하|미만|초과)|\d+\s*가지\s*(?:이상|이하|미만|초과)|전무함|0개)"
+    r"(\d+\s*(?:개|회|문장|단어|가지)|조건\s*\d+\s*개\s*중\s*\d+\s*개|\d+\s*개\s*(?:이상|이하|미만|초과)|\d+\s*가지\s*(?:이상|이하|미만|초과)|전무함|0개)"
+)
+
+# 수준 칸 내 점수 표기 제거 정규식 (예: "(4점)", "[4점]", "4점:", "4점")
+SCORE_LABEL_PATTERN = re.compile(
+    r"\(\s*\d+(?:\.\d+)?\s*점\s*\)|\[\s*\d+(?:\.\d+)?\s*점\s*\]|\b\d+(?:\.\d+)?\s*점[:\s]*"
 )
 
 class RubricCheckResult:
@@ -61,8 +66,11 @@ def check_rubric_quantitative_cells(content: str) -> List[str]:
             if not cell:
                 continue
 
-            has_quant = bool(QUANTITATIVE_PATTERN.search(cell))
-            found_degrees = [deg for deg in DEGREE_EXPRESSIONS if deg in cell]
+            # Phase 3: 점수 표기("(4점)", "4점")를 먼저 제거한 뒤 관찰 기준을 검사
+            cleaned_cell = SCORE_LABEL_PATTERN.sub("", cell).strip()
+
+            has_quant = bool(QUANTITATIVE_PATTERN.search(cleaned_cell))
+            found_degrees = [deg for deg in DEGREE_EXPRESSIONS if deg in cleaned_cell]
 
             # Rule: must have quantitative criteria, degree words alone are forbidden
             if not has_quant:
