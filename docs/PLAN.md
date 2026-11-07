@@ -66,7 +66,7 @@ english-crew/
 
 | 테이블 | 주요 컬럼 | 도입 Phase |
 | --- | --- | --- |
-| channels | id, name, type(all·course), course\_code | 1 |
+| channels | id, name, type(all·course), course_code, course | 1 |
 | bots | id, name, role, prompt\_dir, model | 1 |
 | messages | id, channel\_id, sender, content, created\_at | 2 |
 | tasks | id, request\_id, bot\_id, title, status, output\_path | 2 |
@@ -145,7 +145,7 @@ Antigravity를 열기 전에 교사가 직접 끝낼 준비 항목입니다. 스
 - [ ] 빈 폴더 `english-crew` 생성 후 Antigravity로 열기, `git init`
 - [ ] 이 계획서를 Markdown으로 내보내 `docs/PLAN.md`로 저장
 - [ ] 2장 공통 규칙을 Antigravity Rules에 등록
-- [ ] 과목 채널 목록 확정: 영어I, 심화영어I, 심화영어독해I, 진로영어
+- [x] 과목 채널 목록 확정 (COURSES.md): 공통영어1, 공통영어2, 영어Ⅰ, 영어Ⅱ, 영어 독해와 작문, 심화 영어 독해와 작문, 미디어 영어, 전체 교무회의
 - [ ] (Phase 2 전) 평가봇 스킬 3개 SKILL.md를 `backend/agents/assessment/`에 복사
 - [ ] (Phase 3 전) 나머지 봇 스킬 6개를 각 봇 폴더에 복사
 
@@ -171,7 +171,7 @@ Antigravity를 열기 전에 교사가 직접 끝낼 준비 항목입니다. 스
 
 2. 레이아웃 (창 최소 1280x800)
    - 좌측 240px: 앱 이름 "English Crew", 부제 "나만의 영어 수업·평가 크루"
-     · 채널: 전체 교무회의(배지 "전원"), 과목 채널 4개(영어I, 심화영어I, 심화영어독해I, 진로영어)
+     · 채널: 전체 교무회의(배지 "전원"), 과목 채널 7개(공통영어1, 공통영어2, 영어Ⅰ, 영어Ⅱ, 영어 독해와 작문, 심화 영어 독해와 작문, 미디어 영어) (COURSES.md 확정)
      · 팀원 5: 코디봇(총괄·디스패치), 교육과정봇(성취기준·팩트체크), 수업봇(차시·활동 설계),
        평가봇(문항·루브릭), 기록봇(관찰·세특). 각 항목 우측에 "Gemini" 라벨
      · 하단 상태줄: "연결됨 · Gemini · {모델명}" (지금은 목업 문자열)

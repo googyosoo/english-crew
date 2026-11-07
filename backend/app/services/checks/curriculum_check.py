@@ -1,49 +1,153 @@
 import re
 import json
+import unicodedata
+import difflib
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Tuple, Set
 
-CURRICULUM_JSONL_PATH = Path(__file__).resolve().parent.parent.parent.parent / "data" / "curriculum" / "english_2022.jsonl"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
+CURRICULUM_JSONL_PATH = PROJECT_ROOT / "docs" / "source-skills" / "kr-curriculum-2022" / "data" / "high" / "f08.jsonl"
+if not CURRICULUM_JSONL_PATH.exists():
+    CURRICULUM_JSONL_PATH = PROJECT_ROOT / "backend" / "data" / "curriculum" / "english_2022.jsonl"
+
+_ABBR = r"[가-힣]{1,4}(?:\([가-힣]{1,4}\))?(?:[ⅠⅡ]|I{1,2})?"
+_ABBR3 = r"[가-힣]{1,4}(?:[ⅠⅡ]|I{1,2})|[가-힣]{2}\d"
+_DASH = r"[-–—‒−]"
+_CLOSE_LIKE = r"[\]\)\}〕】］|]"
+_THREE = re.compile(rf"(1[02])({_ABBR3}){_DASH}(\d{{2}}){_DASH}(\d{{2}})")
+_TWO = re.compile(rf"(10|12|[2469])({_ABBR})(\d{{2}}){_DASH}(\d{{2}})({_CLOSE_LIKE})?")
+_THIRD_GROUP = re.compile(rf"{_DASH}\d{{2}}")
+
+WINDOW = 400
+LEVEL_WINDOW = 1200
+ALTERED = 0.55
+EVIDENCE_MIN = 12
+MIN_CLAIM = 15
+MIN_LEVEL_CLAIM = 10
+
+_NORM = re.compile(r"[\s·⋅･ㆍ・∙•]+")
+_CLOSERS = "]})〕】］|`"
+_HEAD_JUNK = re.compile(r"^[\s\]\})〕】］|`:：*>·⋅･ㆍ]+")
+_META = ("성취기준", "성취수준", "차시", "단원", "지도안", "교사", "학생", "모둠",
+         "교과서", "학습지", "활동지", "학습목표", "평가계획", "지필평가", "수행평가",
+         "형성평가", "총괄평가", "채점", "루브릭", "피드백", "유의점", "준비물")
+_LEVEL_LINE = re.compile(r"(?:^|[^A-Za-z])([A-Ea-e])\s*(?:수준|등급)\s*[:：]\s*(\S.*)")
+
+_STANDARDS_DB: Optional[Dict[str, List[Dict]]] = None
+
+def _norm(s):
+    return _NORM.sub("", unicodedata.normalize("NFC", s or ""))
 
 def normalize_code(code: str) -> str:
-    """Normalize curriculum code: remove brackets, normalize roman numerals to arabic/standard."""
-    c = code.strip("[]() \t")
-    # Normalize Roman numerals: Ⅰ -> 1, Ⅱ -> 2 (or standard code format)
-    c = c.replace("Ⅰ", "1").replace("Ⅱ", "2").replace("I", "1").replace("i", "1")
-    return c
+    """Normalize curriculum code: remove whitespace and special middle dot characters."""
+    return _norm(code)
 
-_STANDARDS_CACHE: Optional[Dict[str, Dict]] = None
+def load_curriculum_db() -> Dict[str, List[Dict]]:
+    global _STANDARDS_DB
+    if _STANDARDS_DB is not None:
+        return _STANDARDS_DB
 
-def load_curriculum_standards() -> Dict[str, Dict]:
-    global _STANDARDS_CACHE
-    if _STANDARDS_CACHE is not None:
-        return _STANDARDS_CACHE
-
-    standards: Dict[str, Dict] = {}
-    if not CURRICULUM_JSONL_PATH.exists():
-        return standards
-
-    with open(CURRICULUM_JSONL_PATH, "r", encoding="utf-8") as f:
-        for line in f:
-            if not line.strip():
-                continue
-            row = json.loads(line)
-            raw_code = row.get("code", "")
-            norm_code = normalize_code(raw_code)
-            standards[raw_code] = row
-            standards[norm_code] = row
-
-    _STANDARDS_CACHE = standards
-    return _STANDARDS_CACHE
+    db = {}
+    if CURRICULUM_JSONL_PATH.exists():
+        with open(CURRICULUM_JSONL_PATH, "r", encoding="utf-8") as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                r = json.loads(line)
+                if r.get("subject") == "영어":
+                    db.setdefault(r["code"], []).append(r)
+    _STANDARDS_DB = db
+    return _STANDARDS_DB
 
 def get_allowed_curriculum_codes() -> Set[str]:
-    stds = load_curriculum_standards()
+    d = load_curriculum_db()
     codes = set()
-    for k, v in stds.items():
-        codes.add(v.get("code", ""))
-        codes.add(normalize_code(v.get("code", "")))
+    for code, recs in d.items():
+        codes.add(code)
+        codes.add(_norm(code))
+        for r in recs:
+            codes.add(r.get("code", ""))
     return codes
+
+def find_codes(text: str) -> List[Tuple[str, int, int]]:
+    """[(코드, 시작 오프셋, 끝 오프셋), ...] 등장 순서대로."""
+    found = []
+    for m in _THREE.finditer(text):
+        found.append((m.start(), f"{m.group(1)}{m.group(2)}-{m.group(3)}-{m.group(4)}", m.end()))
+    taken = [(s, e) for s, _, e in found]
+    for m in _TWO.finditer(text):
+        if any(a <= m.start() < b for a, b in taken):
+            continue
+        if m.group(5) is None and _THIRD_GROUP.match(text, m.end()):
+            continue
+        found.append((m.start(), f"{m.group(1)}{m.group(2)}{m.group(3)}-{m.group(4)}", m.end()))
+    return [(c, s, e) for s, c, e in sorted(found)]
+
+def _match(rec, window):
+    s = _norm(rec["statement"])
+    if not s:
+        return (0, -1.0)
+    if s in _norm(window):
+        return (1, 1.0)
+    head = _norm(_HEAD_JUNK.sub("", window))
+    return (0, difflib.SequenceMatcher(None, s, head[: len(s)]).ratio())
+
+@dataclass
+class CurriculumCheckResult:
+    passed: bool
+    issues: List[str] = field(default_factory=list)
+    found_codes: List[str] = field(default_factory=list)
+
+    def to_dict(self) -> Dict:
+        return {
+            "passed": self.passed,
+            "issues": self.issues,
+            "status_label": "통과" if self.passed else f"수정 필요 ({len(self.issues)}건)",
+            "found_codes": self.found_codes
+        }
+
+def check_curriculum(text: str) -> CurriculumCheckResult:
+    """
+    docs/source-skills/kr-curriculum-2022/scripts/verify.py 로직을 그대로 재사용하여
+    산출물의 모든 코드가 f08.jsonl에 있고 진술문이 글자 그대로 일치하는지 검사합니다.
+    """
+    text_norm = unicodedata.normalize("NFC", text.replace("\x00", ""))
+    D = load_curriculum_db()
+    codes = find_codes(text_norm)
+
+    issues: List[str] = []
+    found_code_names = []
+
+    if not codes:
+        return CurriculumCheckResult(
+            passed=False,
+            issues=["산출물에 2022 개정 영어과 교육과정 성취기준 코드가 명시되지 않았습니다."],
+            found_codes=[]
+        )
+
+    for i, (code, _, end) in enumerate(codes):
+        found_code_names.append(code)
+        recs = D.get(code)
+        if not recs:
+            issues.append(f"성취기준 코드 [{code}]는 2022 개정 영어과 공인 교육과정(f08.jsonl)에 실재하지 않는 코드입니다.")
+            continue
+
+        nxt = codes[i + 1][1] if i + 1 < len(codes) else len(text_norm)
+        window = text_norm[end: min(nxt, end + WINDOW)]
+        rec = max(recs, key=lambda r: _match(r, window) + (r["statement"] is not None,))
+
+        exact, ratio = _match(rec, window)
+        # If the statement is not exact verbatim in the output text
+        expected_stmt = rec.get("statement", "").strip()
+        if expected_stmt and _norm(expected_stmt) not in _norm(text_norm):
+            issues.append(
+                f"성취기준 [{code}]의 진술문이 공식 원문과 글자 그대로 일치하지 않습니다.\n"
+                f"  - 공식 원문: '{expected_stmt}'"
+            )
+
+    passed = (len(issues) == 0)
+    return CurriculumCheckResult(passed=passed, issues=issues, found_codes=found_code_names)
 
 CHANNEL_COURSE_MAP = {
     "common1": "공통영어1",
@@ -57,7 +161,7 @@ CHANNEL_COURSE_MAP = {
 
 def get_course_standards_text(course_name: str, channel_id: Optional[str] = None) -> str:
     """
-    2022 개정 영어과 교육과정 jsonl에서 해당 과목에 속하는 행만 추출하여
+    2022 개정 영어과 교육과정 f08.jsonl에서 해당 과목에 속하는 행만 추출하여
     코드, 진술문, A~E 성취수준 원문을 그대로 텍스트로 구성합니다.
     (docs/source-skills/COURSES.md 매핑 기준)
     """
@@ -68,23 +172,12 @@ def get_course_standards_text(course_name: str, channel_id: Optional[str] = None
     if channel_id and channel_id in CHANNEL_COURSE_MAP:
         target_course = CHANNEL_COURSE_MAP[channel_id]
     else:
-        # Match by name
-        clean_name = course_name.replace(" ", "").upper()
-        if "공통영어1" in clean_name or "COMMON1" in clean_name:
-            target_course = "공통영어1"
-        elif "공통영어2" in clean_name or "COMMON2" in clean_name:
-            target_course = "공통영어2"
-        elif "영어I" in clean_name or "영어Ⅰ" in clean_name or "ENG1" in clean_name or "영어1" in clean_name:
-            target_course = "영어Ⅰ"
-        elif "영어II" in clean_name or "영어Ⅱ" in clean_name or "ENG2" in clean_name or "영어2" in clean_name:
-            target_course = "영어Ⅱ"
-        elif "심화" in clean_name:
-            target_course = "심화 영어 독해와 작문"
-        elif "독해" in clean_name or "작문" in clean_name:
-            target_course = "영어 독해와 작문"
-        elif "미디어" in clean_name:
-            target_course = "미디어 영어"
-        else:
+        clean_name = course_name.replace(" ", "")
+        for ch_id, c_name in CHANNEL_COURSE_MAP.items():
+            if c_name.replace(" ", "") == clean_name or ch_id.upper() in clean_name.upper():
+                target_course = c_name
+                break
+        if not target_course:
             target_course = "영어Ⅰ"
 
     matched_rows = []
@@ -115,68 +208,3 @@ def get_course_standards_text(course_name: str, channel_id: Optional[str] = None
                     lines.append(f"  - [{lvl}]: {levels[lvl].strip()}")
 
     return "\n".join(lines)
-
-@dataclass
-class CurriculumCheckResult:
-    passed: bool
-    issues: List[str] = field(default_factory=list)
-    found_codes: List[str] = field(default_factory=list)
-
-    def to_dict(self) -> Dict:
-        return {
-            "passed": self.passed,
-            "issues": self.issues,
-            "status_label": "통과" if self.passed else f"수정 필요 ({len(self.issues)}건)",
-            "found_codes": self.found_codes
-        }
-
-def check_curriculum(output_text: str) -> CurriculumCheckResult:
-    stds = load_curriculum_standards()
-    issues: List[str] = []
-    
-    # 1. Extract all curriculum code tokens
-    # e.g., [12영1-01-01], [10영1-01-01], 12영Ⅰ-01-01, [12영-01-01], etc.
-    code_pattern = re.compile(r"\[?([0-9]{2}[가-힣A-Za-z0-9ⅠⅡⅰⅱ-]+)\]?")
-    raw_matches = code_pattern.findall(output_text)
-    
-    # Filter candidates that look like valid curriculum code structure: starts with 2 digits, contains subject hangul
-    found_codes = []
-    for m in raw_matches:
-        if any(subj in m for subj in ["영", "공", "기"]):
-            # Exclude false positives like dates or student ids
-            if not m.startswith("20") and not m.startswith("S"):
-                found_codes.append(m)
-
-    # Deduplicate while preserving order
-    unique_codes = list(dict.fromkeys(found_codes))
-
-    if not unique_codes:
-        issues.append("산출물에 2022 개정 교육과정 성취기준 코드가 명시되지 않았습니다.")
-        return CurriculumCheckResult(passed=False, issues=issues, found_codes=[])
-
-    # 2. Check each found code against official jsonl
-    for c in unique_codes:
-        norm = normalize_code(c)
-        match_entry = stds.get(c) or stds.get(norm)
-        
-        if not match_entry:
-            issues.append(f"성취기준 코드 [{c}]는 2022 개정 영어과 공인 교육과정에 존재하지 않는 날조된 코드입니다.")
-            continue
-
-        official_statement = match_entry.get("statement", "").strip()
-        if not official_statement:
-            continue
-
-        # 3. Check exact verbatim statement match in the output text
-        # If the output claims to present the statement for this code, it must match verbatim.
-        # Find where the code is mentioned, and check if statement text appears verbatim in the same block/document
-        if official_statement not in output_text:
-            # Check if there is an attempted statement near the code that does not match
-            # Search for pattern: 진술문, 내용, etc.
-            issues.append(
-                f"성취기준 [{c}]의 진술문이 공식 원문과 글자 그대로 일치하지 않습니다. "
-                f"(공식 원문: '{official_statement}')"
-            )
-
-    passed = (len(issues) == 0)
-    return CurriculumCheckResult(passed=passed, issues=issues, found_codes=unique_codes)

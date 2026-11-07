@@ -32,9 +32,16 @@ async def init_db():
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
                 type TEXT NOT NULL,
-                course_code TEXT
+                course_code TEXT,
+                course TEXT
             )
         """)
+        # Safe migration: add column 'course' if missing
+        try:
+            await db.execute("ALTER TABLE channels ADD COLUMN course TEXT")
+        except Exception:
+            pass
+
         await db.execute("""
             CREATE TABLE IF NOT EXISTS bots (
                 id TEXT PRIMARY KEY,
@@ -106,20 +113,33 @@ async def init_db():
         """)
         await db.commit()
 
-        # Seed channels if empty
-        cursor = await db.execute("SELECT COUNT(*) FROM channels")
-        channel_count = (await cursor.fetchone())[0]
-        if channel_count == 0:
-            seed_channels = [
-                ("general", "전체 교무회의", "all", None),
-                ("eng1", "영어I", "course", "ENG1"),
-                ("adv_eng1", "심화영어I", "course", "ADV_ENG1"),
-                ("adv_read1", "심화영어독해I", "course", "ADV_READ1"),
-                ("career_eng", "진로영어", "course", "CAREER_ENG"),
-            ]
-            await db.executemany(
-                "INSERT INTO channels (id, name, type, course_code) VALUES (?, ?, ?, ?)",
-                seed_channels
+        # Synchronize channels according to docs/source-skills/COURSES.md
+        official_channels = [
+            ("general", "전체 교무회의", "all", None, None),
+            ("common1", "공통영어1", "course", "COMMON1", "공통영어1"),
+            ("common2", "공통영어2", "course", "COMMON2", "공통영어2"),
+            ("eng1", "영어Ⅰ", "course", "ENG1", "영어Ⅰ"),
+            ("eng2", "영어Ⅱ", "course", "ENG2", "영어Ⅱ"),
+            ("readwrite", "영어 독해와 작문", "course", "READWRITE", "영어 독해와 작문"),
+            ("adv_readwrite", "심화 영어 독해와 작문", "course", "ADV_READWRITE", "심화 영어 독해와 작문"),
+            ("media", "미디어 영어", "course", "MEDIA", "미디어 영어"),
+        ]
+        official_ids = [ch[0] for ch in official_channels]
+        placeholders = ",".join("?" for _ in official_ids)
+        await db.execute(f"DELETE FROM channels WHERE id NOT IN ({placeholders})", official_ids)
+
+        for ch in official_channels:
+            await db.execute(
+                """
+                INSERT INTO channels (id, name, type, course_code, course)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    name = excluded.name,
+                    type = excluded.type,
+                    course_code = excluded.course_code,
+                    course = excluded.course
+                """,
+                ch
             )
 
         # Seed or update bots (Phase 3: all 5 bots enabled)

@@ -48,7 +48,7 @@ async def list_bots():
 @router.get("/channels")
 async def list_channels():
     async with get_db_connection() as db:
-        cursor = await db.execute("SELECT id, name, type, course_code FROM channels")
+        cursor = await db.execute("SELECT id, name, type, course_code, course FROM channels")
         rows = await cursor.fetchall()
         result = []
         for r in rows:
@@ -58,6 +58,7 @@ async def list_channels():
                 "name": r["name"],
                 "type": r["type"],
                 "course_code": r["course_code"],
+                "course": r["course"],
                 "workspace_dir": rel_path
             })
         return result
@@ -115,7 +116,7 @@ async def process_teacher_request(
     try:
         async with get_db_connection() as db:
             # 1. Fetch channel info
-            cursor = await db.execute("SELECT id, name, type, course_code FROM channels WHERE id = ?", (channel_id,))
+            cursor = await db.execute("SELECT id, name, type, course_code, course FROM channels WHERE id = ?", (channel_id,))
             channel = await cursor.fetchone()
             if not channel:
                 return
@@ -335,7 +336,8 @@ async def process_teacher_request(
             # Prepare specific context for curriculum bot: inject official course standards
             effective_extra = extra_ctx
             if bot_id == "curriculum":
-                standards_text = get_course_standards_text(channel_info["name"], channel_id=channel_id)
+                course_val = channel_info.get("course") or channel_info["name"]
+                standards_text = get_course_standards_text(course_val, channel_id=channel_id)
                 if standards_text:
                     effective_extra = f"{effective_extra}\n\n{standards_text}\n"
 

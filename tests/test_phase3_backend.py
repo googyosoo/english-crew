@@ -106,11 +106,11 @@ def test_curriculum_check_logic():
 
     # 2. Fabricated code
     fake_code_output = """
-- [99영99-99-99] 임의로 날조한 성취기준 진술문입니다.
+- [12영Ⅰ-99-99] 임의로 날조한 성취기준 진술문입니다.
 """
     res2 = check_curriculum(fake_code_output)
     assert not res2.passed
-    assert any("존재하지 않는" in iss for iss in res2.issues)
+    assert any("실재하지 않는" in iss or "존재하지 않는" in iss for iss in res2.issues)
     print("PASS: Fabricated curriculum code rejected:", res2.issues)
 
     # 3. Statement mismatch
@@ -181,6 +181,36 @@ def test_seteuk_check_and_byte_counter_3_cases():
     assert any("명사형 종결 위반" in iss for iss in check_seteuk(bad_fmt4).issues)
 
     print("PASS: All Seteuk format checks (middle dot, tilde, parenthesis, noun endings) caught violations correctly!")
+
+
+def test_channels_courses_md_alignment():
+    client = TestClient(app)
+    res = client.get("/channels")
+    assert res.status_code == 200
+    channels = res.json()
+    assert len(channels) == 8, f"채널 개수가 8개가 아닙니다: {len(channels)}"
+    
+    expected_courses = {
+        "general": None,
+        "common1": "공통영어1",
+        "common2": "공통영어2",
+        "eng1": "영어Ⅰ",
+        "eng2": "영어Ⅱ",
+        "readwrite": "영어 독해와 작문",
+        "adv_readwrite": "심화 영어 독해와 작문",
+        "media": "미디어 영어",
+    }
+    
+    ch_dict = {c["id"]: c for c in channels}
+    for ch_id, exp_course in expected_courses.items():
+        assert ch_id in ch_dict, f"채널 {ch_id}가 누락되었습니다!"
+        assert ch_dict[ch_id].get("course") == exp_course, f"채널 {ch_id}의 course({ch_dict[ch_id].get('course')})가 {exp_course}와 다릅니다!"
+
+    # Deprecated channels check
+    for old_id in ["adv_eng1", "adv_read1", "career_eng"]:
+        assert old_id not in ch_dict, f"구버전 채널 {old_id}가 삭제되지 않았습니다!"
+
+    print("PASS: channels table aligned 100% with docs/source-skills/COURSES.md (8 channels, course column verified)!")
 
 
 def test_context_notes_and_students_api():
@@ -255,6 +285,7 @@ def test_approval_adds_lesson_record_automatically():
 if __name__ == "__main__":
     try:
         asyncio.run(init_db())
+        test_channels_courses_md_alignment()
         test_anonymization_and_deanonymization()
         test_gemini_payload_anonymity_with_5_students_csv()
         test_curriculum_check_logic()
