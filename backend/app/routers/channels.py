@@ -377,9 +377,13 @@ async def process_teacher_request(
                 # Rule 3: Rubric Check for assessment bot
                 elif bot_id == "assessment":
                     check_res = check_rubric(raw_output)
+                    first_attempt_output = None
+                    first_attempt_check = None
                     if not check_res.passed:
                         # 1-time automatic self-healing retry!
                         logger.warning(f"Assessment output check failed: {check_res.issues}. Triggering 1-time retry...")
+                        first_attempt_output = raw_output
+                        first_attempt_check = check_res.to_dict()
                         feedback_prompt = f"다음 검사 지적 사항을 반드시 수정하여 다시 작성하십시오:\n- " + "\n- ".join(check_res.issues)
                         raw_output = await execute_bot_task(
                             bot_id=bot_id,
@@ -394,6 +398,10 @@ async def process_teacher_request(
                         # Re-check after retry
                         check_res = check_rubric(raw_output)
                     check_info = check_res.to_dict()
+                    if first_attempt_output is not None:
+                        check_info["retry_occurred"] = True
+                        check_info["first_attempt_output"] = first_attempt_output
+                        check_info["first_attempt_check"] = first_attempt_check
 
                 # Rule 5: Seteuk Check for record bot
                 elif bot_id == "record":

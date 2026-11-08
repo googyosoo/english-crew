@@ -21,6 +21,9 @@
 - data/ and .env are in .gitignore.
 - Student real names never leave the machine: replace with class_no-student_no before any Gemini call.
 - Electron: contextIsolation true, nodeIntegration false, expose APIs via preload only.
+- Never author curriculum standards, textbook passages, legal/format rules, or reference data. Copy them only from teacher-provided files. If a source is missing, stop and ask.
+- Never read the clipboard, browser storage, or search the computer for API keys or credentials.
+- Only read files inside this project folder. Never search or open files elsewhere on the computer (home, Desktop, Downloads, screenshots). If a file is missing, report the exact expected path and stop.
 
 ## UI language
 - All user-facing text in Korean.

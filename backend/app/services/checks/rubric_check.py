@@ -45,6 +45,7 @@ def check_rubric_quantitative_cells(content: str) -> List[str]:
     """
     issues = []
     lines = content.splitlines()
+    header_cols = []
 
     for idx, line in enumerate(lines):
         line_str = line.strip()
@@ -55,16 +56,24 @@ def check_rubric_quantitative_cells(content: str) -> List[str]:
         if not cells or any("---" in c for c in cells):
             continue
 
-        # Skip header rows
+        # Skip header rows & record header columns
         first_cell = cells[0]
         first_clean = first_cell.replace(" ", "")
         if any(h in first_clean for h in ["평가요소", "수준", "배점", "영역", "항목", "구분"]):
+            header_cols = [c.replace(" ", "") for c in cells]
             continue
 
         # Check each level cell (usually index 1 onwards)
         for cell_idx, cell in enumerate(cells[1:], start=2):
             if not cell:
                 continue
+
+            # If this column is explicitly a '배점' or '점수' column, skip quantitative criteria check
+            col_pos = cell_idx - 1
+            if header_cols and col_pos < len(header_cols):
+                col_header = header_cols[col_pos]
+                if col_header in ["배점", "점수", "배점(점)"]:
+                    continue
 
             # Phase 3: 점수 표기("(4점)", "4점")를 먼저 제거한 뒤 관찰 기준을 검사
             cleaned_cell = SCORE_LABEL_PATTERN.sub("", cell).strip()
