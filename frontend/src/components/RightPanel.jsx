@@ -13,7 +13,12 @@ import {
   saveChannelContext,
   getExportUrl,
   fetchExportDir,
-  saveExportDir
+  saveExportDir,
+  fetchRoutines,
+  createRoutine,
+  updateRoutine,
+  deleteRoutine,
+  runRoutineNow
 } from '../api/client';
 
 const BOT_NAMES = {
@@ -24,8 +29,19 @@ const BOT_NAMES = {
   record: '기록봇'
 };
 
+const DAY_OPTIONS = [
+  { key: 'mon', label: '월' },
+  { key: 'tue', label: '화' },
+  { key: 'wed', label: '수' },
+  { key: 'thu', label: '목' },
+  { key: 'fri', label: '금' },
+  { key: 'sat', label: '토' },
+  { key: 'sun', label: '일' },
+];
+
 export default function RightPanel({
   channel,
+  channels = [],
   contextNote,
   deliverable,
   workspaceDir
@@ -38,6 +54,21 @@ export default function RightPanel({
   const [exportDir, setExportDir] = useState('');
   const [isSavingDir, setIsSavingDir] = useState(false);
   const [dirSaveMsg, setDirSaveMsg] = useState('');
+
+  // Phase 4 Routine state
+  const [routines, setRoutines] = useState([]);
+  const [isLoadingRoutines, setIsLoadingRoutines] = useState(false);
+  const [routineModalOpen, setRoutineModalOpen] = useState(false);
+  const [routineFormMsg, setRoutineFormMsg] = useState('');
+  const [routineActionMsg, setRoutineActionMsg] = useState('');
+  const [routineForm, setRoutineForm] = useState({
+    name: '',
+    channel_id: channel?.id || 'eng1',
+    prompt: '',
+    selectedDays: ['mon'],
+    time: '09:00',
+    enabled: true
+  });
 
   // Load export directory setting
   useEffect(() => {
@@ -73,13 +104,127 @@ export default function RightPanel({
     }
   };
 
+  // Routine Handlers
+  const loadRoutinesList = async () => {
+    setIsLoadingRoutines(true);
+    try {
+      const data = await fetchRoutines();
+      setRoutines(data || []);
+    } catch (e) {
+      console.warn('Failed to fetch routines:', e);
+    } finally {
+      setIsLoadingRoutines(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'routine') {
+      loadRoutinesList();
+    }
+  }, [activeTab]);
+
+  const handleToggleRoutine = async (r) => {
+    try {
+      await updateRoutine(r.id, { enabled: !r.enabled });
+      setRoutines(prev => prev.map(item => item.id === r.id ? { ...item, enabled: !item.enabled } : item));
+    } catch (err) {
+      console.error('Failed to toggle routine:', err);
+    }
+  };
+
+  const handleRunRoutine = async (routineId) => {
+    setRoutineActionMsg('');
+    try {
+      await runRoutineNow(routineId);
+      setRoutineActionMsg('루틴이 실행되어 결재 대기 카드가 등록되었습니다.');
+      await loadRoutinesList();
+      setTimeout(() => setRoutineActionMsg(''), 3000);
+    } catch (err) {
+      setRoutineActionMsg(`실행 실패: ${err.message}`);
+      setTimeout(() => setRoutineActionMsg(''), 3000);
+    }
+  };
+
+  const handleDeleteRoutine = async (routineId) => {
+    if (!window.confirm('이 루틴을 삭제하시겠습니까?')) return;
+    try {
+      await deleteRoutine(routineId);
+      setRoutines(prev => prev.filter(r => r.id !== routineId));
+    } catch (err) {
+      alert(`삭제 실패: ${err.message}`);
+    }
+  };
+
+  const handleOpenAddRoutineModal = () => {
+    setRoutineForm({
+      name: '',
+      channel_id: channel?.id || (channels[0]?.id || 'eng1'),
+      prompt: '',
+      selectedDays: ['mon'],
+      time: '09:00',
+      enabled: true
+    });
+    setRoutineFormMsg('');
+    setRoutineModalOpen(true);
+  };
+
+  const handleDayToggle = (dayKey) => {
+    setRoutineForm(prev => {
+      const exists = prev.selectedDays.includes(dayKey);
+      let updated;
+      if (exists) {
+        updated = prev.selectedDays.filter(d => d !== dayKey);
+        if (updated.length === 0) updated = [dayKey]; // 최소 1개 유지
+      } else {
+        updated = [...prev.selectedDays, dayKey];
+      }
+      return { ...prev, selectedDays: updated };
+    });
+  };
+
+  const handleSaveNewRoutine = async () => {
+    if (!routineForm.name.trim()) {
+      setRoutineFormMsg('루틴 이름을 입력해 주세요.');
+      return;
+    }
+    if (!routineForm.prompt.trim()) {
+      setRoutineFormMsg('요청 문장을 입력해 주세요.');
+      return;
+    }
+    if (routineForm.selectedDays.length === 0) {
+      setRoutineFormMsg('요일을 1개 이상 선택해 주세요.');
+      return;
+    }
+
+    try {
+      await createRoutine({
+        name: routineForm.name.trim(),
+        channel_id: routineForm.channel_id,
+        prompt: routineForm.prompt.trim(),
+        day_of_week: routineForm.selectedDays.join(','),
+        time: routineForm.time.trim(),
+        enabled: routineForm.enabled
+      });
+      setRoutineModalOpen(false);
+      await loadRoutinesList();
+    } catch (err) {
+      setRoutineFormMsg(`저장 실패: ${err.message}`);
+    }
+  };
+
+  // Context Notes State
+  const [selectedUnit, setSelectedUnit] = useState('1과');
+  const [bodyText, setBodyText] = useState('');
+  const [isSavingBody, setIsSavingBody] = useState(false);
+  const [bodySaveMessage, setBodySaveMessage] = useState('');
+  const [channelNotes, setChannelNotes] = useState([]);
+
   // Load real context notes from backend
   const loadContextNotes = async () => {
     if (!channel?.id) return;
     try {
       const notes = await fetchChannelContext(channel.id);
       setChannelNotes(notes || []);
-      // Find body for selectedUnit
       const foundBody = notes.find(n => n.kind === '본문' && n.unit === selectedUnit);
       setBodyText(foundBody ? foundBody.content : '');
     } catch (e) {
@@ -97,14 +242,13 @@ export default function RightPanel({
     setBodySaveMessage('');
     try {
       await saveChannelContext(channel.id, {
-        course_code: channel.course_code || 'COMMON',
         unit: selectedUnit,
         kind: '본문',
         content: bodyText.trim()
       });
       setBodySaveMessage('본문이 저장되었습니다.');
       await loadContextNotes();
-      setTimeout(() => setBodySaveMessage(''), 3000);
+      setTimeout(() => setBodySaveMessage(''), 2500);
     } catch (err) {
       setBodySaveMessage(`저장 실패: ${err.message}`);
     } finally {
@@ -112,70 +256,77 @@ export default function RightPanel({
     }
   };
 
-  const lessonRecords = channelNotes.filter(n => n.kind === '차시기록');
   const progressNotes = channelNotes.filter(n => n.kind === '진도');
+  const lessonRecords = channelNotes.filter(n => n.kind === '차시기록');
+  const workspacePath = workspaceDir || 'data/workspaces';
 
-  const workspacePath = workspaceDir || channel?.workspace_dir || (
-    channel?.type === 'all' || channel?.id === 'general'
-      ? 'data/workspaces/_공통/'
-      : `data/workspaces/${(channel?.name || '').replace(/\s+/g, '_')}/${selectedUnit}`
-  );
+  const formatDaysDisplay = (dayStr) => {
+    if (!dayStr) return '매일';
+    if (dayStr === 'everyday' || dayStr === '매일' || dayStr === '*') return '매일';
+    const dayLabels = { mon: '월', tue: '화', wed: '수', thu: '목', fri: '금', sat: '토', sun: '일' };
+    const parts = dayStr.split(',').map(d => d.trim().toLowerCase());
+    return parts.map(p => dayLabels[p] || p).join('·');
+  };
 
   return (
-    <aside className="w-[320px] shrink-0 h-screen bg-white border-l border-slate-200 flex flex-col select-none">
-      {/* Tab Navigation */}
-      <div className="flex border-b border-slate-200 bg-slate-50/60 p-1.5 gap-1 shrink-0 items-center">
-        <button
-          type="button"
-          onClick={() => setActiveTab('deliverable')}
-          className={`flex-1 py-1.5 px-2 text-xs font-semibold rounded-md transition-all flex items-center justify-center gap-1.5 ${
-            activeTab === 'deliverable'
-              ? 'bg-white text-indigo-700 shadow-sm border border-slate-200/80'
-              : 'text-slate-500 hover:text-slate-800'
-          }`}
-        >
-          <ArtifactIcon className="w-3.5 h-3.5" />
-          <span>산출물</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('context')}
-          className={`flex-1 py-1.5 px-2 text-xs font-semibold rounded-md transition-all flex items-center justify-center gap-1.5 ${
-            activeTab === 'context'
-              ? 'bg-white text-indigo-700 shadow-sm border border-slate-200/80'
-              : 'text-slate-500 hover:text-slate-800'
-          }`}
-        >
-          <ContextIcon className="w-3.5 h-3.5" />
-          <span>수업 맥락</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('routine')}
-          className={`flex-1 py-1.5 px-2 text-xs font-semibold rounded-md transition-all flex items-center justify-center gap-1.5 ${
-            activeTab === 'routine'
-              ? 'bg-white text-indigo-700 shadow-sm border border-slate-200/80'
-              : 'text-slate-500 hover:text-slate-800'
-          }`}
-        >
-          <RoutineIcon className="w-3.5 h-3.5" />
-          <span>루틴</span>
-        </button>
+    <aside className="w-80 border-l border-slate-200 bg-white flex flex-col shrink-0 select-none">
+      {/* Panel Tabs Header with Settings button */}
+      <div className="flex items-center justify-between border-b border-slate-200 px-2 pt-2 bg-slate-50/50">
+        <div className="flex gap-1">
+          <button
+            type="button"
+            onClick={() => setActiveTab('deliverable')}
+            className={`px-3 py-2 text-xs font-semibold rounded-t-lg transition-all border-b-2 flex items-center gap-1.5 ${
+              activeTab === 'deliverable'
+                ? 'border-indigo-600 text-indigo-600 bg-white shadow-xs'
+                : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-100/70'
+            }`}
+          >
+            <ArtifactIcon className="w-3.5 h-3.5" />
+            <span>산출물</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('context')}
+            className={`px-3 py-2 text-xs font-semibold rounded-t-lg transition-all border-b-2 flex items-center gap-1.5 ${
+              activeTab === 'context'
+                ? 'border-indigo-600 text-indigo-600 bg-white shadow-xs'
+                : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-100/70'
+            }`}
+          >
+            <ContextIcon className="w-3.5 h-3.5" />
+            <span>수업 맥락</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('routine')}
+            className={`px-3 py-2 text-xs font-semibold rounded-t-lg transition-all border-b-2 flex items-center gap-1.5 ${
+              activeTab === 'routine'
+                ? 'border-indigo-600 text-indigo-600 bg-white shadow-xs'
+                : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-100/70'
+            }`}
+          >
+            <RoutineIcon className="w-3.5 h-3.5" />
+            <span>루틴</span>
+          </button>
+        </div>
+
+        {/* Global Settings Gear Button */}
         <button
           type="button"
           onClick={() => setSettingsOpen(true)}
-          title="설정 (내보내기 폴더 등)"
-          className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-200/60 rounded-md transition-colors"
+          title="환경 설정 (내보내기 폴더)"
+          className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 rounded-md transition-colors"
         >
-          <span className="text-xs">⚙️</span>
+          <span className="text-sm leading-none">⚙️</span>
         </button>
       </div>
 
-      {/* Tab Content Area */}
+      {/* Main Tab Content Area */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {/* Tab 1: 산출물 미리보기 */}
+        {/* Tab 1: 산출물 */}
         {activeTab === 'deliverable' && (
-          <div>
+          <div className="space-y-4">
             {deliverable && deliverable.content ? (
               <div className="space-y-3">
                 <div className="pb-2 border-b border-slate-150">
@@ -250,7 +401,7 @@ export default function RightPanel({
           </div>
         )}
 
-        {/* Tab 2: 수업 맥락 (Phase 3 실데이터 연동) */}
+        {/* Tab 2: 수업 맥락 */}
         {activeTab === 'context' && (
           <div className="space-y-3.5">
             <div className="flex items-center justify-between pb-2 border-b border-slate-200">
@@ -323,7 +474,7 @@ export default function RightPanel({
               </div>
             </div>
 
-            {/* 차시기록 (결재 승인 시 자동 누적) */}
+            {/* 차시기록 */}
             <div className="bg-slate-50 rounded-card p-3 border border-slate-200 text-xs space-y-2">
               <span className="font-bold text-slate-700 block">차시기록 (확정 내역)</span>
               {lessonRecords.length > 0 ? (
@@ -344,18 +495,121 @@ export default function RightPanel({
           </div>
         )}
 
-        {/* Tab 3: 루틴 (Phase 4 준비 중) */}
+        {/* Tab 3: 루틴 (Phase 4 실구현) */}
         {activeTab === 'routine' && (
-          <div className="space-y-4">
-            <div className="p-4 rounded-card bg-indigo-50/60 border border-indigo-150 text-center">
-              <RoutineIcon className="w-8 h-8 mx-auto text-indigo-500 mb-2" />
-              <h4 className="text-xs font-bold text-indigo-900">정기 자동화 루틴</h4>
-              <span className="inline-block mt-1 px-2 py-0.5 text-[10px] font-semibold bg-indigo-100 text-indigo-700 rounded-full">
-                Phase 4 지원 예정 (준비 중)
-              </span>
-              <p className="text-[11px] text-indigo-700/80 mt-2 leading-relaxed">
-                지정된 주기(요일·시각)에 맞춰 주간 수능 문항 세트 출제, 학기말 세특 일괄 생성 등의 자동화 루틴이 제공될 예정입니다.
-              </p>
+          <div className="space-y-3.5">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+              <div>
+                <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
+                  정기 자동화 루틴
+                </span>
+                <h3 className="text-sm font-bold text-slate-900">
+                  반복 업무 스케줄
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={handleOpenAddRoutineModal}
+                className="px-2.5 py-1 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow-sm flex items-center gap-1 transition-colors"
+              >
+                <span>+</span>
+                <span>루틴 추가</span>
+              </button>
+            </div>
+
+            {routineActionMsg && (
+              <div className="text-xs p-2 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-lg font-medium leading-relaxed">
+                {routineActionMsg}
+              </div>
+            )}
+
+            {/* 루틴 카드 목록 */}
+            <div className="space-y-2.5">
+              {isLoadingRoutines ? (
+                <div className="text-center py-8 text-xs text-slate-400">루틴을 불러오는 중...</div>
+              ) : routines.length === 0 ? (
+                <div className="p-6 border-2 border-dashed border-slate-200 rounded-card text-center text-slate-400">
+                  <RoutineIcon className="w-8 h-8 mx-auto text-slate-300 mb-2" />
+                  <p className="text-xs font-semibold text-slate-600">등록된 루틴이 없습니다</p>
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    정기적으로 실행할 수업 준비나 문항 출제 요청을 등록해 보세요.
+                  </p>
+                </div>
+              ) : (
+                routines.map((r) => (
+                  <div
+                    key={r.id}
+                    className={`p-3 rounded-card border transition-all ${
+                      r.enabled
+                        ? 'bg-white border-slate-200 shadow-xs'
+                        : 'bg-slate-50 border-slate-200 opacity-60'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-xs font-bold text-slate-900">
+                            {r.name}
+                          </span>
+                          <span className="text-[10px] px-1.5 py-0.2 bg-slate-100 text-slate-600 rounded font-medium border border-slate-200">
+                            {r.channel_name}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5 mt-1 text-[11px] text-indigo-600 font-semibold">
+                          <span>⏰ {formatDaysDisplay(r.day_of_week)}</span>
+                          <span>{r.time}</span>
+                        </div>
+                      </div>
+
+                      {/* Toggle switch */}
+                      <button
+                        type="button"
+                        onClick={() => handleToggleRoutine(r)}
+                        className={`w-9 h-5 rounded-full p-0.5 transition-colors shrink-0 ${
+                          r.enabled ? 'bg-indigo-600' : 'bg-slate-300'
+                        }`}
+                        title={r.enabled ? '루틴 활성 (클릭하여 끄기)' : '루틴 비활성 (클릭하여 켜기)'}
+                      >
+                        <div
+                          className={`w-4 h-4 rounded-full bg-white shadow-xs transition-transform ${
+                            r.enabled ? 'translate-x-4' : 'translate-x-0'
+                          }`}
+                        />
+                      </button>
+                    </div>
+
+                    {/* Prompt snippet */}
+                    <div className="mt-2 text-xs text-slate-600 bg-slate-50 p-2 rounded border border-slate-150 leading-relaxed">
+                      "{r.prompt}"
+                    </div>
+
+                    {/* Bottom actions */}
+                    <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-400">
+                      <span>
+                        {r.last_run_at
+                          ? `마지막 실행: ${new Date(r.last_run_at).toLocaleDateString()} ${new Date(r.last_run_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                          : '실행 이력 없음'}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleRunRoutine(r.id)}
+                          className="text-indigo-600 hover:text-indigo-800 font-semibold px-2 py-0.5 rounded hover:bg-indigo-50 transition-colors"
+                        >
+                          지금 실행
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteRoutine(r.id)}
+                          className="text-rose-500 hover:text-rose-700 px-1 py-0.5 rounded hover:bg-rose-50 transition-colors"
+                        >
+                          삭제
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         )}
@@ -452,6 +706,132 @@ export default function RightPanel({
                 className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg shadow-sm disabled:opacity-50"
               >
                 {isSavingDir ? '저장 중...' : '저장'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* New Routine Modal */}
+      {routineModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl border border-slate-200 max-w-md w-full p-5 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-150">
+              <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                <span>⏰</span>
+                <span>새 자동화 루틴 추가</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setRoutineModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 text-sm font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  루틴 이름
+                </label>
+                <input
+                  type="text"
+                  value={routineForm.name}
+                  onChange={(e) => setRoutineForm({ ...routineForm, name: e.target.value })}
+                  placeholder="예: 매주 월요일 3과 수업 준비"
+                  className="w-full text-xs p-2 border border-slate-300 rounded-lg focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  실행 대상 채널
+                </label>
+                <select
+                  value={routineForm.channel_id}
+                  onChange={(e) => setRoutineForm({ ...routineForm, channel_id: e.target.value })}
+                  className="w-full text-xs p-2 border border-slate-300 rounded-lg focus:outline-none focus:border-indigo-500 bg-white"
+                >
+                  {channels.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name} ({c.type === 'all' ? '전체' : '과목'})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  실행 요일
+                </label>
+                <div className="flex gap-1.5">
+                  {DAY_OPTIONS.map((d) => {
+                    const isSelected = routineForm.selectedDays.includes(d.key);
+                    return (
+                      <button
+                        key={d.key}
+                        type="button"
+                        onClick={() => handleDayToggle(d.key)}
+                        className={`flex-1 py-1 text-xs font-semibold rounded-md border transition-colors ${
+                          isSelected
+                            ? 'bg-indigo-600 border-indigo-600 text-white'
+                            : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                        }`}
+                      >
+                        {d.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  실행 시각 (24시간 형식)
+                </label>
+                <input
+                  type="time"
+                  value={routineForm.time}
+                  onChange={(e) => setRoutineForm({ ...routineForm, time: e.target.value })}
+                  className="w-full text-xs p-2 border border-slate-300 rounded-lg focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  요청 문장 (프롬프트)
+                </label>
+                <textarea
+                  value={routineForm.prompt}
+                  onChange={(e) => setRoutineForm({ ...routineForm, prompt: e.target.value })}
+                  rows={3}
+                  placeholder="예: 3과 본문 기반 어휘 퀴즈 10문항과 답안 초안 만들어줘"
+                  className="w-full text-xs p-2.5 border border-slate-300 rounded-lg focus:outline-none focus:border-indigo-500 resize-none"
+                />
+              </div>
+
+              {routineFormMsg && (
+                <div className="text-xs text-rose-600 bg-rose-50 p-2 rounded border border-rose-200">
+                  {routineFormMsg}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-150">
+              <button
+                type="button"
+                onClick={() => setRoutineModalOpen(false)}
+                className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg"
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveNewRoutine}
+                className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg shadow-sm"
+              >
+                추가하기
               </button>
             </div>
           </div>

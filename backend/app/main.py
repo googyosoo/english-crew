@@ -3,14 +3,18 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.app.db.database import init_db
-from backend.app.routers import health, channels, approvals, context, export
+from backend.app.routers import health, channels, approvals, context, export, routines
+from backend.app.services.scheduler import start_scheduler, stop_scheduler
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: ensure tables and seeds exist
     await init_db()
+    # Start routine background scheduler & catchup
+    start_scheduler()
     yield
-    # Shutdown logic if needed
+    # Shutdown logic
+    stop_scheduler()
 
 app = FastAPI(
     title="English Crew Backend",
@@ -32,6 +36,7 @@ app.include_router(channels.router)
 app.include_router(approvals.router)
 app.include_router(context.router)
 app.include_router(export.router)
+app.include_router(routines.router)
 
 if __name__ == "__main__":
     import uvicorn

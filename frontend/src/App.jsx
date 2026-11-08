@@ -367,6 +367,7 @@ export default function App() {
         {/* 3. Right Side Panel: 320px */}
         <RightPanel
           channel={activeChannel}
+          channels={channels}
           deliverable={activeDeliverable}
           workspaceDir={activeWorkspaceDir}
         />

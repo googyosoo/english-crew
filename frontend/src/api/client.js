@@ -110,6 +110,57 @@ export async function saveExportDir(exportDir) {
   return await res.json();
 }
 
+export async function fetchRoutines() {
+  const res = await fetch(`${API_BASE}/routines`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return await res.json();
+}
+
+export async function createRoutine(routineData) {
+  const res = await fetch(`${API_BASE}/routines`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(routineData),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `HTTP ${res.status}`);
+  }
+  return await res.json();
+}
+
+export async function updateRoutine(routineId, updateData) {
+  const res = await fetch(`${API_BASE}/routines/${routineId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updateData),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `HTTP ${res.status}`);
+  }
+  return await res.json();
+}
+
+export async function deleteRoutine(routineId) {
+  const res = await fetch(`${API_BASE}/routines/${routineId}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return await res.json();
+}
+
+export async function runRoutineNow(routineId) {
+  const res = await fetch(`${API_BASE}/routines/${routineId}/run`, {
+    method: 'POST',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `HTTP ${res.status}`);
+  }
+  return await res.json();
+}
+
 export function subscribeToRequestEvents(requestId, onEvent, onError) {
   const url = `${API_BASE}/requests/${requestId}/events`;
   const eventSource = new EventSource(url);

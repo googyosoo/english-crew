@@ -117,6 +117,21 @@ async def init_db():
                 value TEXT NOT NULL
             )
         """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS routines (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                channel_id TEXT NOT NULL,
+                prompt TEXT NOT NULL,
+                day_of_week TEXT NOT NULL,
+                time TEXT NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                last_run_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (channel_id) REFERENCES channels (id)
+            )
+        """)
         await db.commit()
 
         # Synchronize channels according to docs/source-skills/COURSES.md
