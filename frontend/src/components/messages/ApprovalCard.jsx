@@ -57,9 +57,58 @@ export default function ApprovalCard({ message, onApprovalDecision }) {
           <div className="text-xs font-semibold text-indigo-600 tracking-wider mb-1">
             결재 요청
           </div>
-          <p className="text-sm font-bold text-slate-900 leading-snug mb-4">
+          <p className="text-sm font-bold text-slate-900 leading-snug mb-3">
             {question}
           </p>
+
+          {/* 검사 결과 요약 섹션 (Phase 4-0c) */}
+          {(() => {
+            const tasks = meta.tasks || [];
+            const checkTasks = tasks.filter(t => t.check_info);
+            if (checkTasks.length === 0) return null;
+
+            const totalIssues = checkTasks.reduce((acc, t) => acc + (t.check_info.passed ? 0 : (t.check_info.issues?.length || 1)), 0);
+            const allPassed = totalIssues === 0;
+            const hasRetry = checkTasks.some(t => t.check_info.retry_occurred);
+
+            return (
+              <div className="mb-4 p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-slate-700">산출물 품질 검사 결과:</span>
+                  <div className="flex items-center gap-1.5">
+                    {hasRetry && (
+                      <span className="px-2 py-0.5 text-[10px] font-medium bg-blue-50 text-blue-700 border border-blue-200 rounded">
+                        1차 실패 후 재생성 완료
+                      </span>
+                    )}
+                    <span className={`px-2 py-0.5 text-[10px] font-bold rounded border ${
+                      allPassed
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                        : 'bg-amber-50 text-amber-700 border-amber-300'
+                    }`}>
+                      {allPassed ? '전체 검사 통과' : `경고 ${totalIssues}건`}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="space-y-1 pt-1 border-t border-slate-200/60">
+                  {checkTasks.map((t, idx) => {
+                    const ci = t.check_info;
+                    return (
+                      <div key={t.task_id || t.id || idx} className="flex items-start justify-between text-[11px] text-slate-600">
+                        <span className="truncate max-w-[70%]">
+                          @{t.bot_id || '팀원봇'} - {t.title || '과업'}
+                        </span>
+                        <span className={ci.passed ? 'text-emerald-600 font-medium' : 'text-amber-600 font-semibold'}>
+                          {ci.passed ? (ci.retry_occurred ? '통과 (재생성됨)' : '통과') : `수정 필요 (${ci.issues?.length || 0}건)`}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
 
           {status === 'pending' && !rejecting && (
             <div className="flex items-center gap-2">

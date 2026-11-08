@@ -438,6 +438,72 @@ def test_phase4_0b_enhancements():
     print("PASS: Exporter docx table formatting (w:tblHeader & w:cantSplit) verified 100%!")
 
 
+def test_phase4_0c_rubric_checks():
+    """
+    [Phase 4-0c] 최종 동결 검사기 전수 검증:
+    1. regression_rubric_transposed.md 픽스처가 반드시 '수정 필요'로 판정됨
+    2. '2~3회' vs '3~4회' 인접 수준 경계 겹침 검출
+    3. 확장된 감점 표현('1점을 감점 처리한다', '-0.5점' 등) 탐지
+    4. 완전 정량화된 전치형 표 통과 검증
+    """
+    # 1. regression_rubric_transposed.md 픽스처 검사
+    fixture_path = Path("tests/fixtures/regression_rubric_transposed.md")
+    assert fixture_path.exists(), "tests/fixtures/regression_rubric_transposed.md must exist!"
+    content = fixture_path.read_text(encoding="utf-8")
+    res = check_rubric(content)
+    assert not res.passed, "regression_rubric_transposed.md MUST fail rubric_check under 4-0c rules!"
+    assert any("명확히" in iss or "잘" in iss or "부분적" in iss or "거의" in iss for iss in res.issues)
+    print("PASS: 4-0c regression_rubric_transposed.md correctly failed with attitude degree expression issues!")
+
+    # 2. 인접 수준 범위 겹침 ('2~3회' vs '3~4회')
+    overlap_boundary_md = """
+### 평가 루브릭
+총점: 10점
+
+| 평가 요소 | A (10점) | B (8점) | C (6점) | D (4점) |
+| :--- | :--- | :--- | :--- | :--- |
+| 발화 빈도 | 5회 이상 발화 | 3~4회 발화 | 2~3회 발화 | 1회 이하 발화 |
+"""
+    res_overlap = check_rubric(overlap_boundary_md)
+    assert not res_overlap.passed, "Boundary overlap ('3~4회' vs '2~3회') must fail!"
+    assert any("범위가 겹치거나 경계가 중복" in iss for iss in res_overlap.issues)
+    print("PASS: 4-0c boundary overlap ('3~4회' vs '2~3회') correctly rejected!")
+
+    # 3. 확장된 감점 표현 ('1점을 감점 처리한다')
+    extended_deduction_md = """
+### 평가 루브릭
+총점: 10점
+
+| 평가 요소 | A (10점) | B (8점) | C (6점) | D (4점) |
+| :--- | :--- | :--- | :--- | :--- |
+| 내용 구성 | 근거 3개 이상 제시 | 근거 2개 제시 | 근거 1개 제시 | 근거 0개 |
+
+※ 단, 제출 기한을 넘길 경우 1점을 감점 처리한다.
+"""
+    res_deduct = check_rubric(extended_deduction_md)
+    assert not res_deduct.passed, "Extended deduction rule must fail!"
+    assert any("별도 감점 규정" in iss for iss in res_deduct.issues)
+    print("PASS: 4-0c extended deduction ('1점을 감점 처리한다') correctly rejected!")
+
+    # 4. 완전 정량화된 전치형 표 통과 검증
+    valid_transposed_md = """
+### 평가 루브릭
+총점: 10점
+
+| 수준 | 평가 기준 및 관찰 가능한 정량 수량 기준 | 배점 |
+| :---: | :--- | :---: |
+| **A** | - 조건 충족: 지정된 단어 수(40~60단어)와 문장 수(3~4문장)를 충족함.<br>- 내용 및 표현: 상대 의견 인정 표현 1개 이상과 이유 1개 이상을 제시하고, 문법 오류가 0개임. | [10점] |
+| **B** | - 조건 충족: 지정된 조건 2개 중 1개를 충족함.<br>- 내용 및 표현: 상대 의견 인정 표현 1개 이상을 제시하고, 문법 오류가 1~2개 이하임. | [8점] |
+| **C** | - 조건 충족: 지정된 조건 2개 중 0개를 충족함.<br>- 내용 및 표현: 이유 1개 이상을 제시하고, 문법 오류가 3~4개 있음. | [6점] |
+| **D** | - 조건 충족: 분량이 30단어 미만이거나 2문장 이하로 작성됨.<br>- 내용 및 표현: 상대 의견 인정 표현과 이유가 0개이며, 문법 오류가 5개 이상 발생함. | [4점] |
+"""
+    res_valid = check_rubric(valid_transposed_md)
+    if not res_valid.passed:
+        print("Issues in valid transposed:", res_valid.issues)
+    assert res_valid.passed, f"Fully quantitative transposed rubric must pass! Issues: {res_valid.issues}"
+    print("PASS: 4-0c fully quantitative transposed rubric passed 100%!")
+
+
 if __name__ == "__main__":
     try:
         asyncio.run(init_db())
@@ -449,6 +515,7 @@ if __name__ == "__main__":
         test_phase4_0_rubric_check_enhancements()
         test_phase4_0_answer_check()
         test_phase4_0b_enhancements()
+        test_phase4_0c_rubric_checks()
         test_seteuk_check_and_byte_counter_3_cases()
         test_context_notes_and_students_api()
         test_approval_adds_lesson_record_automatically()
