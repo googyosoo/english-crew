@@ -17,6 +17,7 @@ os.environ["CREW_DATA_DIR"] = temp_dir
 from fastapi.testclient import TestClient
 from backend.app.main import app
 from backend.app.db.database import init_db, get_db_connection
+asyncio.run(init_db())
 from backend.app.services.anonymizer import anonymize_text, deanonymize_text, get_mask_tag
 from backend.app.services.checks.rubric_check import check_rubric
 from backend.app.services.checks.seteuk_check import check_seteuk, calculate_neis_bytes

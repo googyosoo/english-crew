@@ -6,7 +6,8 @@ export default function Sidebar({
   bots,
   activeChannelId,
   onSelectChannel,
-  health
+  health,
+  onOpenKeyModal
 }) {
   // Determine status display based on health
   const getStatusDisplay = () => {
@@ -130,10 +131,17 @@ export default function Sidebar({
         </div>
       </div>
 
-      {/* Bottom Status Bar */}
-      <div className="p-3 border-t border-slate-200 bg-slate-50/70 text-xs flex items-center gap-2 text-slate-600">
-        <span className={`w-2 h-2 rounded-full shrink-0 ${statusInfo.dotClass}`} />
-        <span className="truncate font-medium">{statusInfo.text}</span>
+      {/* Bottom Status Bar (Clickable for API Key Setup) */}
+      <div
+        onClick={onOpenKeyModal}
+        title="클릭하여 Gemini API 키 설정"
+        className="p-3 border-t border-slate-200 bg-slate-50/70 text-xs flex items-center justify-between text-slate-600 hover:bg-slate-100 cursor-pointer transition-colors"
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          <span className={`w-2 h-2 rounded-full shrink-0 ${statusInfo.dotClass}`} />
+          <span className="truncate font-medium">{statusInfo.text}</span>
+        </div>
+        <span className="text-[10px] text-slate-400">⚙️</span>
       </div>
     </aside>
   );

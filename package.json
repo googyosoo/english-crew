@@ -12,11 +12,51 @@
     "dev:electron": "electron desktop/main.js",
     "dev": "concurrently -k -n \"VITE,APP\" -c \"cyan,magenta\" \"npm run dev:frontend\" \"wait-on tcp:127.0.0.1:5173 && electron desktop/main.js\"",
     "build:frontend": "npm run build --workspace=frontend",
-    "build": "npm run build:frontend"
+    "build:backend": "backend\\.venv\\Scripts\\python.exe scripts/build_backend.py",
+    "build": "npm run build:frontend",
+    "build:all": "npm run build:frontend && backend\\.venv\\Scripts\\python.exe scripts/build_backend.py",
+    "dist": "electron-builder --win --dir",
+    "dist:installer": "electron-builder --win nsis"
+  },
+  "build": {
+    "appId": "com.englishcrew.app",
+    "productName": "English Crew",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "desktop/**/*",
+      "frontend/dist/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "backend-dist",
+        "to": "backend-dist",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "sign": null,
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
   },
   "devDependencies": {
     "concurrently": "^9.1.2",
     "electron": "^34.2.0",
+    "electron-builder": "^25.1.8",
     "wait-on": "^8.0.2"
   }
 }

@@ -24,9 +24,7 @@ WORKSPACE_DIR = get_resource_root()
 def get_env_file_path() -> Path:
     user_data = os.getenv("CREW_USER_DATA_DIR")
     if user_data:
-        p = Path(user_data) / ".env"
-        if p.exists():
-            return p
+        return Path(user_data) / ".env"
     # Fallback to dev workspace backend/.env
     return WORKSPACE_DIR / "backend" / ".env"
 
@@ -78,7 +76,7 @@ def get_gemini_config() -> Dict[str, str]:
     if env_file.exists():
         load_dotenv(dotenv_path=env_file, override=True)
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
-    model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip()
+    model = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite").strip()
     return {"api_key": api_key, "model": model}
 
 # Files excluded from prompt loading

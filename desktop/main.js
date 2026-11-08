@@ -9,24 +9,52 @@ let backendProcess = null;
 function startBackend() {
   const rootDir = path.join(__dirname, '..');
   const isWin = process.platform === 'win32';
-  const venvPythonWin = path.join(rootDir, 'backend', '.venv', 'Scripts', 'python.exe');
-  const venvPythonPosix = path.join(rootDir, 'backend', '.venv', 'bin', 'python');
-  
-  let pythonPath = 'python';
-  if (isWin && fs.existsSync(venvPythonWin)) {
-    pythonPath = venvPythonWin;
-  } else if (!isWin && fs.existsSync(venvPythonPosix)) {
-    pythonPath = venvPythonPosix;
+  const userDataPath = app.getPath('userData');
+  const dataDir = path.join(userDataPath, 'data');
+
+  try {
+    fs.mkdirSync(dataDir, { recursive: true });
+  } catch (e) {
+    console.warn('[Backend] Could not create userData data directory:', e);
   }
 
-  const args = ['-m', 'uvicorn', 'backend.app.main:app', '--host', '127.0.0.1', '--port', '8765'];
+  const isPackaged = app.isPackaged;
+  const packagedExe = path.join(process.resourcesPath, 'backend-dist', 'english-crew-backend.exe');
 
-  console.log(`[Backend] Starting FastAPI using: ${pythonPath}`);
-  backendProcess = spawn(pythonPath, args, {
-    cwd: rootDir,
-    shell: false,
-    stdio: 'pipe',
-  });
+  if (isPackaged && fs.existsSync(packagedExe)) {
+    console.log(`[Backend] Starting Packaged Binary: ${packagedExe}`);
+    const env = Object.assign({}, process.env, {
+      CREW_USER_DATA_DIR: userDataPath,
+      CREW_DATA_DIR: dataDir,
+    });
+
+    backendProcess = spawn(packagedExe, [], {
+      cwd: userDataPath,
+      env: env,
+      shell: false,
+      stdio: 'pipe',
+    });
+  } else {
+    // Development mode
+    const venvPythonWin = path.join(rootDir, 'backend', '.venv', 'Scripts', 'python.exe');
+    const venvPythonPosix = path.join(rootDir, 'backend', '.venv', 'bin', 'python');
+
+    let pythonPath = 'python';
+    if (isWin && fs.existsSync(venvPythonWin)) {
+      pythonPath = venvPythonWin;
+    } else if (!isWin && fs.existsSync(venvPythonPosix)) {
+      pythonPath = venvPythonPosix;
+    }
+
+    const args = ['-m', 'uvicorn', 'backend.app.main:app', '--host', '127.0.0.1', '--port', '8765'];
+
+    console.log(`[Backend] Starting FastAPI in dev mode using: ${pythonPath}`);
+    backendProcess = spawn(pythonPath, args, {
+      cwd: rootDir,
+      shell: false,
+      stdio: 'pipe',
+    });
+  }
 
   backendProcess.stdout.on('data', (data) => {
     console.log(`[FastAPI] ${data.toString().trim()}`);

@@ -10,7 +10,9 @@ import {
   sendRequest,
   decideApproval,
   fetchTaskDeliverable,
-  subscribeToRequestEvents
+  subscribeToRequestEvents,
+  fetchApiKeyStatus,
+  saveApiKey
 } from './api/client';
 
 export default function App() {
@@ -26,10 +28,17 @@ export default function App() {
   const [activeWorkspaceDir, setActiveWorkspaceDir] = useState(null);
   const [statusMessage, setStatusMessage] = useState('');
 
+  // Phase 4-3: API Key Setup Modal
+  const [keyModalOpen, setKeyModalOpen] = useState(false);
+  const [inputKey, setInputKey] = useState('');
+  const [keySaveMsg, setKeySaveMsg] = useState('');
+  const [isSavingKey, setIsSavingKey] = useState(false);
+  const [maskedKey, setMaskedKey] = useState('');
+
   // Track active SSE cleanup
   const sseCleanupRef = useRef(null);
 
-  // 1. Initial Load: Health, Channels, Bots from backend API only
+  // 1. Initial Load: Health, Channels, Bots, API Key status from backend API only
   useEffect(() => {
     let isMounted = true;
 
@@ -39,6 +48,19 @@ export default function App() {
         if (isMounted) {
           setHealth(h);
           setBackendOffline(h.status === 'error');
+        }
+
+        // Check if API key is configured
+        try {
+          const keyStatus = await fetchApiKeyStatus();
+          if (isMounted) {
+            setMaskedKey(keyStatus.masked_key || '');
+            if (!keyStatus.configured) {
+              setKeyModalOpen(true);
+            }
+          }
+        } catch (e) {
+          console.warn('Failed to check API key status:', e);
         }
 
         const chs = await fetchChannels();
@@ -330,6 +352,33 @@ export default function App() {
     }
   };
 
+  // API Key Save Handler
+  const handleSaveApiKey = async () => {
+    if (!inputKey.trim()) {
+      setKeySaveMsg('API 키를 입력해 주세요.');
+      return;
+    }
+    setIsSavingKey(true);
+    setKeySaveMsg('');
+    try {
+      const res = await saveApiKey(inputKey.trim());
+      setMaskedKey(res.masked_key || '');
+      setKeySaveMsg('API 키가 안전하게 저장되었습니다.');
+      // Refresh health status
+      const h = await fetchHealth();
+      setHealth(h);
+      setTimeout(() => {
+        setKeyModalOpen(false);
+        setKeySaveMsg('');
+        setInputKey('');
+      }, 1500);
+    } catch (err) {
+      setKeySaveMsg(`저장 실패: ${err.message}`);
+    } finally {
+      setIsSavingKey(false);
+    }
+  };
+
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-[#f8f9fa] text-slate-800 font-sans flex-col">
       {/* Backend Offline Banner */}
@@ -351,6 +400,7 @@ export default function App() {
           activeChannelId={activeChannelId}
           onSelectChannel={handleSelectChannel}
           health={health}
+          onOpenKeyModal={() => setKeyModalOpen(true)}
         />
 
         {/* 2. Center Chat Area: Variable Width */}
@@ -372,6 +422,80 @@ export default function App() {
           workspaceDir={activeWorkspaceDir}
         />
       </div>
+
+      {/* Gemini API Key Modal (Phase 4-3) */}
+      {keyModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl border border-slate-200 max-w-md w-full p-6 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-150">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">🔑</span>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">Google Gemini API 키 설정</h3>
+                  <p className="text-[11px] text-slate-500">영어 수업 에이전트 크루를 구동하기 위한 API 키</p>
+                </div>
+              </div>
+              {health.gemini !== 'missing_key' && (
+                <button
+                  type="button"
+                  onClick={() => setKeyModalOpen(false)}
+                  className="text-slate-400 hover:text-slate-600 text-sm font-bold"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  API Key (Google AI Studio)
+                </label>
+                <input
+                  type="password"
+                  value={inputKey}
+                  onChange={(e) => setInputKey(e.target.value)}
+                  placeholder={maskedKey ? `현재 키: ${maskedKey}` : "AIzaSy..."}
+                  className="w-full text-xs p-2.5 border border-slate-300 rounded-lg focus:outline-none focus:border-indigo-500 font-mono"
+                />
+                <p className="text-[11px] text-slate-400 mt-1">
+                  입력된 키는 사용자 컴퓨터 로컬에만 안전하게 암호화/저장되며, 외부 서버나 로그에 일절 전송되지 않습니다.
+                </p>
+              </div>
+
+              {keySaveMsg && (
+                <div className={`text-xs p-2 rounded border font-medium ${
+                  keySaveMsg.includes('실패') || keySaveMsg.includes('입력')
+                    ? 'bg-rose-50 border-rose-200 text-rose-600'
+                    : 'bg-emerald-50 border-emerald-200 text-emerald-600'
+                }`}>
+                  {keySaveMsg}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-150">
+              {health.gemini !== 'missing_key' && (
+                <button
+                  type="button"
+                  onClick={() => setKeyModalOpen(false)}
+                  className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg"
+                >
+                  취소
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={handleSaveApiKey}
+                disabled={isSavingKey}
+                className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg shadow-sm disabled:opacity-50"
+              >
+                {isSavingKey ? '저장 중...' : 'API 키 저장 및 활성화'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

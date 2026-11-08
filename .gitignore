@@ -6,6 +6,9 @@ node_modules/
 # Production build outputs
 dist/
 build/
+backend-dist/
+build_backend_tmp/
+release/
 
 # Python
 __pycache__/

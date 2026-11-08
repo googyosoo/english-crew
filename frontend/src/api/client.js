@@ -161,6 +161,25 @@ export async function runRoutineNow(routineId) {
   return await res.json();
 }
 
+export async function fetchApiKeyStatus() {
+  const res = await fetch(`${API_BASE}/settings/api_key`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return await res.json();
+}
+
+export async function saveApiKey(apiKey, model = null) {
+  const res = await fetch(`${API_BASE}/settings/api_key`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ api_key: apiKey, model }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `HTTP ${res.status}`);
+  }
+  return await res.json();
+}
+
 export function subscribeToRequestEvents(requestId, onEvent, onError) {
   const url = `${API_BASE}/requests/${requestId}/events`;
   const eventSource = new EventSource(url);
