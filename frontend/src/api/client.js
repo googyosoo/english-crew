@@ -90,6 +90,26 @@ export async function deleteChannelContext(noteId) {
   return await res.json();
 }
 
+export function getExportUrl(requestId, format = 'docx') {
+  return `${API_BASE}/requests/${requestId}/export?format=${format}`;
+}
+
+export async function fetchExportDir() {
+  const res = await fetch(`${API_BASE}/settings/export_dir`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return await res.json();
+}
+
+export async function saveExportDir(exportDir) {
+  const res = await fetch(`${API_BASE}/settings/export_dir`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ export_dir: exportDir }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return await res.json();
+}
+
 export function subscribeToRequestEvents(requestId, onEvent, onError) {
   const url = `${API_BASE}/requests/${requestId}/events`;
   const eventSource = new EventSource(url);

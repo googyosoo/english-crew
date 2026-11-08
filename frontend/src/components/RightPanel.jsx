@@ -8,7 +8,13 @@ import {
   FolderIcon,
   CheckIcon
 } from './common/Icons';
-import { fetchChannelContext, saveChannelContext } from '../api/client';
+import {
+  fetchChannelContext,
+  saveChannelContext,
+  getExportUrl,
+  fetchExportDir,
+  saveExportDir
+} from '../api/client';
 
 const BOT_NAMES = {
   coordinator: '코디봇',
@@ -26,12 +32,46 @@ export default function RightPanel({
 }) {
   const [activeTab, setActiveTab] = useState('deliverable');
 
-  // Phase 3 Context state
-  const [selectedUnit, setSelectedUnit] = useState('3과');
-  const [bodyText, setBodyText] = useState('');
-  const [isSavingBody, setIsSavingBody] = useState(false);
-  const [bodySaveMessage, setBodySaveMessage] = useState('');
-  const [channelNotes, setChannelNotes] = useState([]);
+  // Phase 4 Export & Settings state
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [exportDir, setExportDir] = useState('');
+  const [isSavingDir, setIsSavingDir] = useState(false);
+  const [dirSaveMsg, setDirSaveMsg] = useState('');
+
+  // Load export directory setting
+  useEffect(() => {
+    fetchExportDir()
+      .then(data => {
+        if (data?.export_dir) setExportDir(data.export_dir);
+      })
+      .catch(e => console.warn('Failed to load export dir:', e));
+  }, []);
+
+  const handleExport = (format) => {
+    const reqId = deliverable?.request_id || deliverable?.requestId || 'req_latest';
+    const url = getExportUrl(reqId, format);
+    window.open(url, '_blank');
+    setExportMenuOpen(false);
+  };
+
+  const handleSaveExportDir = async () => {
+    if (!exportDir.trim()) return;
+    setIsSavingDir(true);
+    setDirSaveMsg('');
+    try {
+      await saveExportDir(exportDir.trim());
+      setDirSaveMsg('저장되었습니다.');
+      setTimeout(() => {
+        setDirSaveMsg('');
+        setSettingsOpen(false);
+      }, 1500);
+    } catch (err) {
+      setDirSaveMsg(`오류: ${err.message}`);
+    } finally {
+      setIsSavingDir(false);
+    }
+  };
 
   // Load real context notes from backend
   const loadContextNotes = async () => {
@@ -84,7 +124,7 @@ export default function RightPanel({
   return (
     <aside className="w-[320px] shrink-0 h-screen bg-white border-l border-slate-200 flex flex-col select-none">
       {/* Tab Navigation */}
-      <div className="flex border-b border-slate-200 bg-slate-50/60 p-1.5 gap-1 shrink-0">
+      <div className="flex border-b border-slate-200 bg-slate-50/60 p-1.5 gap-1 shrink-0 items-center">
         <button
           type="button"
           onClick={() => setActiveTab('deliverable')}
@@ -121,6 +161,14 @@ export default function RightPanel({
           <RoutineIcon className="w-3.5 h-3.5" />
           <span>루틴</span>
         </button>
+        <button
+          type="button"
+          onClick={() => setSettingsOpen(true)}
+          title="설정 (내보내기 폴더 등)"
+          className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-200/60 rounded-md transition-colors"
+        >
+          <span className="text-xs">⚙️</span>
+        </button>
       </div>
 
       {/* Tab Content Area */}
@@ -131,15 +179,41 @@ export default function RightPanel({
             {deliverable && deliverable.content ? (
               <div className="space-y-3">
                 <div className="pb-2 border-b border-slate-150">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between relative">
                     <span className="text-[10px] font-semibold tracking-wider text-indigo-600 uppercase bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200">
                       산출물 미리보기
                     </span>
-                    {deliverable.output_path && (
-                      <span className="text-[10px] text-slate-400 font-mono truncate max-w-[140px]" title={deliverable.output_path}>
-                        {deliverable.output_path}
-                      </span>
-                    )}
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={() => setExportMenuOpen(!exportMenuOpen)}
+                        className="px-2.5 py-1 text-[11px] font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded shadow-sm flex items-center gap-1 transition-colors"
+                      >
+                        <span>내보내기</span>
+                        <span className="text-[9px]">▾</span>
+                      </button>
+
+                      {exportMenuOpen && (
+                        <div className="absolute right-0 mt-1 w-36 bg-white border border-slate-200 rounded-lg shadow-lg py-1 z-20">
+                          <button
+                            type="button"
+                            onClick={() => handleExport('docx')}
+                            className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 flex items-center gap-2"
+                          >
+                            <span>📄</span>
+                            <span>Word (.docx)</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleExport('md')}
+                            className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 flex items-center gap-2"
+                          >
+                            <span>📝</span>
+                            <span>Markdown (.md)</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                   <h3 className="text-sm font-bold text-slate-900 mt-2">
                     {deliverable.title || '작업 산출물'}
@@ -320,6 +394,69 @@ export default function RightPanel({
           </div>
         </div>
       </div>
+
+      {/* Settings Modal (내보내기 폴더 설정) */}
+      {settingsOpen && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl border border-slate-200 max-w-md w-full p-5 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-150">
+              <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                <span>⚙️</span>
+                <span>환경 설정</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setSettingsOpen(false)}
+                className="text-slate-400 hover:text-slate-600 text-sm font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  산출물 내보내기 폴더
+                </label>
+                <input
+                  type="text"
+                  value={exportDir}
+                  onChange={(e) => setExportDir(e.target.value)}
+                  placeholder="예: C:\Users\user\Documents"
+                  className="w-full text-xs p-2 border border-slate-300 rounded-lg focus:outline-none focus:border-indigo-500 font-mono"
+                />
+                <p className="text-[11px] text-slate-400 mt-1">
+                  기본값은 사용자 문서(Documents) 폴더입니다.
+                </p>
+              </div>
+
+              {dirSaveMsg && (
+                <div className="text-xs font-medium text-emerald-600 bg-emerald-50 p-2 rounded border border-emerald-200">
+                  {dirSaveMsg}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-150">
+              <button
+                type="button"
+                onClick={() => setSettingsOpen(false)}
+                className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg"
+              >
+                닫기
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveExportDir}
+                disabled={isSavingDir}
+                className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg shadow-sm disabled:opacity-50"
+              >
+                {isSavingDir ? '저장 중...' : '저장'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </aside>
   );
 }
