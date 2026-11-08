@@ -84,12 +84,61 @@ def parse_markdown_tables(content: str):
     return tables
 
 
+def extract_level_quantity_metric(cell_text: str, total_conditions: Optional[int] = None):
+    """
+    수준 셀 텍스트에서 관찰 가능한 정량 수치/기준을 추출합니다.
+    사용자 지시: B "조건 2개 중 1개" = C "조건 2개 중 1개", C "2개 위반" = D "0개 충족"
+    반환: ("condition", total_n, met_count, desc) 또는 ("count", item_type, low, high, op, desc) 또는 None
+    """
+    cleaned = SCORE_LABEL_PATTERN.sub("", cell_text).strip()
+
+    # 1. "조건 n개 중 m개" 또는 조건 기반 충족/위반 판정
+    # 1-a. 조건 n개 모두 포함 / 충족
+    m = re.search(r"조건\s*(\d+)\s*개\s*(?:모두\s*)?(?:포함|충족)", cleaned)
+    if m:
+        n = int(m.group(1))
+        return ("condition", n, n, f"조건 {n}개 중 {n}개 충족")
+
+    # 1-b. 조건 n개 중 m개
+    m = re.search(r"조건\s*(\d+)\s*개\s*중\s*(\d+)\s*개", cleaned)
+    if m:
+        n = int(m.group(1))
+        met = int(m.group(2))
+        return ("condition", n, met, f"조건 {n}개 중 {met}개 충족")
+
+    # 1-c. 조건 n개 중 m개 위반 또는 n개 모두 위반
+    m = re.search(r"(?:조건\s*(\d+)\s*개\s*중\s*)?(\d+)\s*개\s*(?:모두\s*)?위반", cleaned)
+    if m:
+        tot = int(m.group(1)) if m.group(1) else (total_conditions or 2)
+        viol = int(m.group(2))
+        met = max(0, tot - viol)
+        return ("condition", tot, met, f"조건 {tot}개 중 {viol}개 위반(충족 {met}개)")
+
+    # 1-d. 조건 0개 충족 / 조건 n개 중 0개
+    if re.search(r"조건\s*0개\s*충족|조건\s*\d+\s*개\s*중\s*0개", cleaned):
+        tot = total_conditions or 2
+        return ("condition", tot, 0, f"조건 {tot}개 중 0개 충족")
+
+    # 2. 특정 항목 수량 기준: "오류 n개", "근거 n개", "어휘 n개" 등
+    m = re.search(r"([가-힣A-Za-z]+)\s*(\d+)\s*(?:~\s*(\d+))?\s*(개|회|문장|단어|가지)\s*(이상|이하|미만|초과)?", cleaned)
+    if m:
+        item_type = m.group(1)
+        low = int(m.group(2))
+        high = int(m.group(3)) if m.group(3) else low
+        unit = m.group(4)
+        op = m.group(5) or "exact"
+        return ("count", f"{item_type}_{unit}", low, high, op, f"{item_type} {low}~{high}{unit} {op}")
+
+    return None
+
+
 def check_rubric_quantitative_cells(content: str) -> List[str]:
     """
     각 수준 칸은 '숫자+단위(개/회/문장/단어)' 또는 '조건 n개 중 m개' 형태의 기준을 1개 이상 포함해야 통과.
     정도 표현이 있으면 그것만으로는 불가.
     마크다운 표 구분선 바로 위 행만 머리글로 처리.
     같은 평가요소 행 안에서 '조건 n개' 숫자가 수준마다 다르면 '수정 필요'.
+    같은 평가요소 행에서 인접 수준의 수량 기준이 동일하거나 범위가 겹치면 '수정 필요'.
     """
     issues = []
     tables = parse_markdown_tables(content)
@@ -106,6 +155,12 @@ def check_rubric_quantitative_cells(content: str) -> List[str]:
 
             first_cell = cells[0]
             row_condition_ns = []
+            level_metrics = []
+
+            # Determine dominant total conditions in this row if any
+            row_text = " ".join(cells)
+            n_match = re.search(r"조건\s*(\d+)\s*개", row_text)
+            dominant_n = int(n_match.group(1)) if n_match else None
 
             # Check each level cell (usually index 1 onwards)
             for cell_idx, cell in enumerate(cells[1:], start=2):
@@ -141,12 +196,42 @@ def check_rubric_quantitative_cells(content: str) -> List[str]:
                             f"루브릭 {idx+1}행 {cell_idx}번째 칸에 관찰 가능한 수량 기준(숫자+단위 또는 조건 n개 중 m개)이 누락됨: \"{cell[:35]}...\""
                         )
 
+                # Extract metric for overlap / duplicate checking
+                metric = extract_level_quantity_metric(cleaned_cell, dominant_n)
+                level_metrics.append((cell_idx, cell, metric))
+
             # 같은 평가요소 행 안에서 "조건 n개" 숫자가 수준마다 다르면 "수정 필요"
             unique_ns = set(row_condition_ns)
             if len(unique_ns) > 1:
                 issues.append(
                     f"루브릭 {idx+1}행({first_cell[:20]})의 기준 조건 개수(n)가 수준마다 불일치합니다: {sorted(list(unique_ns))}"
                 )
+
+            # [4-0b 1번] 인접 수준의 수량 기준이 동일하거나 범위가 겹치면 "수정 필요"
+            for m_idx in range(len(level_metrics) - 1):
+                col1, text1, m1 = level_metrics[m_idx]
+                col2, text2, m2 = level_metrics[m_idx + 1]
+                if not m1 or not m2:
+                    continue
+
+                if m1[0] == "condition" and m2[0] == "condition":
+                    tot1, met1 = m1[1], m1[2]
+                    tot2, met2 = m2[1], m2[2]
+                    if met1 == met2:
+                        issues.append(
+                            f"루브릭 {idx+1}행({first_cell[:15]})의 인접 수준({col1}칸 vs {col2}칸) 간 수량 기준이 동일하여 변별이 불가능합니다: {m1[3]} = {m2[3]}"
+                        )
+                    elif met1 < met2:
+                        issues.append(
+                            f"루브릭 {idx+1}행({first_cell[:15]})의 상위 수준({col1}칸) 기준이 하위 수준({col2}칸)보다 낮게 역전되었습니다: {m1[3]} < {m2[3]}"
+                        )
+                elif m1[0] == "count" and m2[0] == "count":
+                    item_type1, low1, high1, op1 = m1[1], m1[2], m1[3], m1[4]
+                    item_type2, low2, high2, op2 = m2[1], m2[2], m2[3], m2[4]
+                    if item_type1 == item_type2 and low1 == low2 and high1 == high2 and op1 == op2:
+                        issues.append(
+                            f"루브릭 {idx+1}행({first_cell[:15]})의 인접 수준({col1}칸 vs {col2}칸) 간 수량 기준이 동일합니다: {m1[5]} = {m2[5]}"
+                        )
 
     return issues
 
@@ -164,12 +249,20 @@ def check_rubric_scores_and_deductions(content: str) -> List[str]:
     if tot_match:
         declared_total = int(tot_match.group(1))
 
-    # Detect duplicate deduction section
-    if re.search(r"#{2,}\s*(?:\d+\.\s*)?(?:감점\s*규정|감점\s*기준|채점\s*및\s*감점)", content):
-        if re.search(r"-\d+(?:\.\d+)?\s*점\s*감점|\d+\s*점\s*감점", content):
-            issues.append(
-                "별도 감점 규정과 루브릭 평가요소가 중복됩니다. 별도 감점 규정을 배제하고 루브릭 수준별 배점으로 일원화해야 합니다."
-            )
+    # [4-0b 2번 감점 중복 검사 복구]
+    # 마크다운 표 바깥 본문에서 별도 감점 규정(-0.5점 감점, -1점 감점, 감점 기준 등) 탐지
+    non_table_lines = [l for l in content.splitlines() if not (l.strip().startswith("|") and l.strip().endswith("|"))]
+    non_table_text = "\n".join(non_table_lines)
+
+    deduction_matches = re.findall(
+        r"(?:-\s*\d+(?:\.\d+)?\s*점\s*감점|\b\d+(?:\.\d+)?\s*점\s*감점|-\s*\d+(?:\.\d+)?\s*점|\b감점\s*기준|\b감점\s*규정)",
+        non_table_text
+    )
+    if deduction_matches:
+        issues.append(
+            f"루브릭 외부에 별도 감점 규정('{', '.join(deduction_matches[:3])}')이 명시되어 있습니다. "
+            "별도 감점 규정을 배제하고 루브릭 수준별 배점으로 일원화해야 합니다."
+        )
 
     tables = parse_markdown_tables(content)
     row_max_scores = []

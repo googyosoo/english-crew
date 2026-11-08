@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import asyncio
 import logging
@@ -13,14 +14,69 @@ from backend.app.models.schemas import DispatchPlan, TaskSpec
 
 logger = logging.getLogger(__name__)
 
-# Base directories
-WORKSPACE_DIR = Path(__file__).resolve().parent.parent.parent.parent
-ENV_PATH = WORKSPACE_DIR / "backend" / ".env"
+def get_resource_root() -> Path:
+    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+        return Path(sys._MEIPASS)
+    return Path(__file__).resolve().parent.parent.parent.parent
+
+WORKSPACE_DIR = get_resource_root()
+
+def get_env_file_path() -> Path:
+    user_data = os.getenv("CREW_USER_DATA_DIR")
+    if user_data:
+        p = Path(user_data) / ".env"
+        if p.exists():
+            return p
+    # Fallback to dev workspace backend/.env
+    return WORKSPACE_DIR / "backend" / ".env"
+
+ENV_PATH = get_env_file_path()
 load_dotenv(dotenv_path=ENV_PATH)
+
+def set_gemini_api_key(api_key: str, model: Optional[str] = None):
+    """
+    Safely writes GEMINI_API_KEY to the active .env file without logging secrets,
+    and updates os.environ immediately.
+    """
+    clean_key = api_key.strip()
+    os.environ["GEMINI_API_KEY"] = clean_key
+    if model:
+        os.environ["GEMINI_MODEL"] = model.strip()
+
+    target_env = get_env_file_path()
+    target_env.parent.mkdir(parents=True, exist_ok=True)
+
+    lines = []
+    if target_env.exists():
+        try:
+            lines = target_env.read_text(encoding="utf-8").splitlines()
+        except Exception:
+            lines = []
+
+    key_written = False
+    new_lines = []
+    for line in lines:
+        if line.startswith("GEMINI_API_KEY="):
+            new_lines.append(f"GEMINI_API_KEY={clean_key}")
+            key_written = True
+        elif model and line.startswith("GEMINI_MODEL="):
+            new_lines.append(f"GEMINI_MODEL={model.strip()}")
+        else:
+            new_lines.append(line)
+
+    if not key_written:
+        new_lines.append(f"GEMINI_API_KEY={clean_key}")
+        if model and not any(l.startswith("GEMINI_MODEL=") for l in lines):
+            new_lines.append(f"GEMINI_MODEL={model.strip()}")
+
+    target_env.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+    load_dotenv(dotenv_path=target_env, override=True)
 
 def get_gemini_config() -> Dict[str, str]:
     # Re-read in case .env was updated
-    load_dotenv(dotenv_path=ENV_PATH, override=True)
+    env_file = get_env_file_path()
+    if env_file.exists():
+        load_dotenv(dotenv_path=env_file, override=True)
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
     model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip()
     return {"api_key": api_key, "model": model}
@@ -53,6 +109,7 @@ def load_bot_instructions(bot_id: str) -> str:
             """--- [교육과정봇 필수 준수 규정] ---
 1. 교육과정봇의 산출물은 성취기준 코드, 진술문, 평가요소, A~E 성취수준 원문까지만 작성하십시오.
 2. 루브릭 표나 세부 평가 기준표는 후행 평가봇(assessment)의 고유 과업이므로, 교육과정봇은 절대로 루브릭 표를 작성하지 마십시오.
+3. [본문 미제공 모드 성취기준 선택 규칙] 교과서 본문이 제공되지 않은 경우(지문 없음), 듣기나 읽기 지문이 전제되어야 하는 '요약'(예: [12영Ⅰ-02-04] 듣거나 읽은 내용을 말이나 글로 요약한다), '이해', '파악' 관련 성취기준을 절대 선택하지 마십시오. 반드시 학생이 독립적으로 자신의 생각이나 의견을 글로 서술하는 쓰기/표현 성취기준(예: [12영Ⅰ-02-03] 친숙하거나 다양한 주제에 관하여 자신의 의견이나 감정을 글로 쓴다, [12영Ⅰ-02-05] 관심 있는 주제에 관하여 목적에 맞게 자신의 생각이나 의견을 형식에 맞추어 글로 쓴다 등)만 선택하십시오.
 
 """
         )
@@ -64,10 +121,11 @@ def load_bot_instructions(bot_id: str) -> str:
 1. [지문 생성 절대 금지] 교사가 본문을 제공하지 않았으면 산출물 맨 첫 줄에 반드시 '본문 미제공: 일반 주제 기준으로 작성함'을 명시하고, 영어 지문이나 본문 내용을 절대로 만들어내지 마십시오! "다음 글을 읽고", "지문을 읽고", "제시문을 읽고", "[글의 핵심 내용]" 등의 문구를 절대 쓰지 말고, 지문 없이 주제나 상황만 제시하고 학생이 자신의 생각이나 경험을 직접 영어로 서술하는 '지문 없는 독립 작문 과제(Writing Task)'로 출제하십시오.
    - 올바른 출제 예시: "디지털 기기 사용 절제에 대한 자신의 견해를 담은 3문장의 영문 글을 작성하시오.", "환경 보호 실천 방안에 대한 40~60단어의 주장문을 작성하시오."
 2. [문항 작성 조건과 모범 답안 일치] 문항에 명시한 단어 수 조건(예: 40~60단어)과 문장 수 조건(예: 2~3문장)은 모범 답안(Sample Answer)에서도 영문 단어 수와 문장 수를 정확히 계산하여 100% 일치하도록 작성하십시오.
-3. [4수준 루브릭 완전 정량화] 루브릭은 A, B, C, D 모든 수준의 칸에 주관적 정도 부사(매우, 완벽하게, 잘, 다소, 대체로, 거의, 충분히, 미흡 등)만 쓰지 말고, 반드시 관찰 가능한 정량 수량 기준(조건 n개 중 m개 충족, 오류 n개 이하/이상, 문장 n개 등)을 명시하십시오. 특히 D수준에도 '조건 0개 충족' 또는 '오류 5개 이상' 등 정량 기준을 반드시 포함하십시오.
-4. [조건 개수 일관성] 같은 평가요소 행 안에서 "조건 n개 중 m개" 형태를 쓸 때는 분모인 n이 A~D 모든 수준에서 동일해야 합니다(예: 4개 중 4개, 4개 중 3개, 4개 중 2개, 4개 중 1개 이하 또는 0개).
-5. [배점 명시] 각 행마다 수준별 점수(예: 10점, 8점, 6점, 4점 또는 [10점], [8점] 등)를 명시하고 내림차순이어야 합니다.
-6. [성취기준 코드 무결성] 성취기준 코드는 교육과정봇이 도출한 2022 개정 교육과정 공식 코드(예: [12영Ⅰ-01-01])만 사용하고 임의로 코드를 만들지 마십시오.
+3. [4수준 루브릭 완전 정량화 및 인접 수준 변별] 루브릭은 A, B, C, D 모든 수준의 칸에 주관적 정도 부사(매우, 완벽하게, 잘, 다소, 대체로, 거의, 충분히, 미흡 등)만 쓰지 말고, 반드시 관찰 가능한 정량 수량 기준(조건 n개 중 m개 충족, 오류 n개 이하/이상, 문장 n개 등)을 명시하십시오. 특히 같은 행에서 인접 수준의 수량 기준이 동일하거나 범위가 겹치지 않도록 명확히 차등화하십시오. (예: B수준과 C수준 모두 '조건 2개 중 1개'로 쓰거나, C수준 '2개 위반'과 D수준 '0개 충족'처럼 동일한 기준이 되지 않도록 A=2개 충족, B=1개 충족, C=오류 2개 이하, D=오류 3개 이상 등으로 명확히 구분할 것).
+4. [별도 감점 규정 절대 금지] 루브릭 표 외부에 별도의 감점 규정("-0.5점 감점", "-1점 감점", "감점 기준", "감점 규정" 등)을 일절 작성하지 마십시오. 모든 평가는 루브릭 수준별 배점으로만 일원화해야 합니다.
+5. [조건 개수 일관성] 같은 평가요소 행 안에서 "조건 n개 중 m개" 형태를 쓸 때는 분모인 n이 A~D 모든 수준에서 동일해야 합니다(예: 4개 중 4개, 4개 중 3개, 4개 중 2개, 4개 중 1개 이하 또는 0개).
+6. [배점 명시] 각 행마다 수준별 점수(예: 10점, 8점, 6점, 4점 또는 [10점], [8점] 등)를 명시하고 내림차순이어야 합니다.
+7. [성취기준 코드 무결성] 성취기준 코드는 교육과정봇이 도출한 2022 개정 교육과정 공식 코드(예: [12영Ⅰ-01-01])만 사용하고 임의로 코드를 만들지 마십시오.
 
 """
         )

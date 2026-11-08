@@ -321,6 +321,8 @@ async def process_teacher_request(
         base_extra = ""
         if body_note:
             base_extra += f"--- [단원 {unit} 교과서 본문] ---\n{body_note['content']}\n\n"
+        else:
+            base_extra += "--- [본문 미제공 상태: 지문 없음] ---\n교과서 본문이 제공되지 않았습니다. 지문 없는 독립 작문 과제(일반 주제 기준)로 출제해야 합니다.\n\n"
 
         async def execute_and_verify_task(dt: Dict[str, Any], extra_ctx: str = "") -> Dict[str, Any]:
             t_id = dt["id"]
@@ -341,6 +343,15 @@ async def process_teacher_request(
                 standards_text = get_course_standards_text(course_val, channel_id=channel_id)
                 if standards_text:
                     effective_extra = f"{effective_extra}\n\n{standards_text}\n"
+                if not body_note:
+                    effective_extra += (
+                        "\n\n[중요: 본문 미제공(지문 없음) 모드 안내]\n"
+                        "교과서 본문 및 지문이 전혀 제공되지 않았습니다. 따라서 듣기/읽기 지문이 전제되어야 하는 "
+                        "'요약'(예: [12영Ⅰ-02-04] 듣거나 읽은 내용을 말이나 글로 요약한다), '이해', '파악' 관련 성취기준은 절대 선택하지 마십시오.\n"
+                        "대신 학생이 주어진 주제에 대해 자신의 생각이나 의견을 독립적으로 서술하는 쓰기/표현 성취기준"
+                        "(예: [12영Ⅰ-02-03] 친숙하거나 다양한 주제에 관하여 자신의 의견이나 감정을 글로 쓴다, "
+                        "[12영Ⅰ-02-05] 관심 있는 주제에 관하여 목적에 맞게 자신의 생각이나 의견을 형식에 맞추어 글로 쓴다 등)만 선택하십시오.\n"
+                    )
 
             try:
                 # 1st attempt

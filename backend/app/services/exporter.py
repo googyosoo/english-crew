@@ -104,47 +104,60 @@ def convert_markdown_to_docx(content: str, docx_path: Path, doc_title: str):
             else:
                 data_rows.append(cells)
 
-        if header_cells or data_rows:
-            col_count = max(len(header_cells), max((len(r) for r in data_rows), default=0))
-            if col_count > 0:
-                table = doc.add_table(rows=0, cols=col_count)
-                table.style = 'Table Grid'
-                table.alignment = WD_TABLE_ALIGNMENT.CENTER
+        # 빈 표 및 빈 행 생성 방지: 실제 내용이 하나라도 있어야 생성
+        has_real_content = any(c.strip() for c in header_cells) or any(any(c.strip() for c in r) for r in data_rows)
+        if not has_real_content:
+            in_table = False
+            table_lines = []
+            return
 
-                # Add header row
-                if header_cells:
-                    hdr_row = table.add_row()
-                    for c_idx, h_text in enumerate(header_cells):
-                        if c_idx < col_count:
-                            cell = hdr_row.cells[c_idx]
-                            set_cell_background(cell, "F2F4F7")
-                            set_cell_margins(cell, top=120, bottom=120, left=150, right=150)
-                            p = add_formatted_paragraph(cell, h_text)
-                            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                            for r in p.runs:
-                                r.bold = True
-                                r.font.color.rgb = RGBColor(0x1A, 0x20, 0x2C)
+        col_count = max(len(header_cells), max((len(r) for r in data_rows), default=0))
+        if col_count > 0:
+            table = doc.add_table(rows=0, cols=col_count)
+            table.style = 'Table Grid'
+            table.alignment = WD_TABLE_ALIGNMENT.CENTER
 
-                # Add data rows
-                for r_idx, r_cells in enumerate(data_rows):
-                    row = table.add_row()
-                    for c_idx, d_text in enumerate(r_cells):
-                        if c_idx < col_count:
-                            cell = row.cells[c_idx]
-                            # Alternate row shading
-                            if r_idx % 2 == 1:
-                                set_cell_background(cell, "FAFAFB")
-                            set_cell_margins(cell, top=100, bottom=100, left=150, right=150)
-                            # Handle <br> tags in cell content
-                            sub_lines = d_text.split("<br>")
-                            for s_idx, sl in enumerate(sub_lines):
-                                p = add_formatted_paragraph(cell, sl.strip())
-                                if c_idx == 0:
-                                    p.alignment = WD_ALIGN_PARAGRAPH.LEFT
-                                    for r in p.runs:
-                                        r.bold = True
+            # Add header row
+            if header_cells:
+                hdr_row = table.add_row()
+                # 표 머리글 행이 페이지가 넘어가도 반복되도록 w:tblHeader 설정
+                trPr = hdr_row._tr.get_or_add_trPr()
+                trPr.append(parse_xml(f'<w:tblHeader {nsdecls("w")}/>'))
 
-                doc.add_paragraph()  # Spacing after table
+                for c_idx, h_text in enumerate(header_cells):
+                    if c_idx < col_count:
+                        cell = hdr_row.cells[c_idx]
+                        set_cell_background(cell, "F2F4F7")
+                        set_cell_margins(cell, top=120, bottom=120, left=150, right=150)
+                        p = add_formatted_paragraph(cell, h_text)
+                        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                        for r in p.runs:
+                            r.bold = True
+                            r.font.color.rgb = RGBColor(0x1A, 0x20, 0x2C)
+
+            # Add data rows
+            for r_idx, r_cells in enumerate(data_rows):
+                row = table.add_row()
+                for c_idx, d_text in enumerate(r_cells):
+                    if c_idx < col_count:
+                        cell = row.cells[c_idx]
+                        # Alternate row shading
+                        if r_idx % 2 == 1:
+                            set_cell_background(cell, "FAFAFB")
+                        set_cell_margins(cell, top=100, bottom=100, left=150, right=150)
+                        # Handle <br> tags in cell content
+                        sub_lines = d_text.split("<br>")
+                        for s_idx, sl in enumerate(sub_lines):
+                            p = add_formatted_paragraph(cell, sl.strip())
+                            if c_idx == 0:
+                                p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+                                for r in p.runs:
+                                    r.bold = True
+
+            # 행이 페이지 경계에서 깨지지 않도록 cantSplit 설정
+            for row in table.rows:
+                trPr = row._tr.get_or_add_trPr()
+                trPr.append(parse_xml(f'<w:cantSplit {nsdecls("w")}/>'))
 
         in_table = False
         table_lines = []

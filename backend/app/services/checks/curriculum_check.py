@@ -1,3 +1,4 @@
+import sys
 import re
 import json
 import unicodedata
@@ -6,7 +7,12 @@ from pathlib import Path
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Tuple, Set
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
+def get_resource_root() -> Path:
+    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+        return Path(sys._MEIPASS)
+    return Path(__file__).resolve().parent.parent.parent.parent.parent
+
+PROJECT_ROOT = get_resource_root()
 CURRICULUM_JSONL_PATH = PROJECT_ROOT / "docs" / "source-skills" / "kr-curriculum-2022" / "data" / "high" / "f08.jsonl"
 if not CURRICULUM_JSONL_PATH.exists():
     CURRICULUM_JSONL_PATH = PROJECT_ROOT / "backend" / "data" / "curriculum" / "english_2022.jsonl"
@@ -145,6 +151,16 @@ def check_curriculum(text: str) -> CurriculumCheckResult:
                 f"성취기준 [{code}]의 진술문이 공식 원문과 글자 그대로 일치하지 않습니다.\n"
                 f"  - 공식 원문: '{expected_stmt}'"
             )
+
+        # [4-0b 3번] 본문 미제공 시 요약·이해 성취기준(지문이 필요한 것) 차단
+        is_no_body = "본문 미제공" in text_norm or "지문 없음" in text_norm or "일반 주제" in text_norm
+        if is_no_body:
+            stmt_norm = _norm(expected_stmt)
+            if "요약" in stmt_norm or "듣거나읽은" in stmt_norm:
+                issues.append(
+                    f"본문 미제공(지문 없음) 모드에서는 지문이 필요한 요약 성취기준 [{code}]를 선택할 수 없습니다. "
+                    "독립 작문 성취기준([12영Ⅰ-02-03] 자신의 의견이나 감정을 글로 쓴다, [12영Ⅰ-02-05] 생각이나 의견을 형식에 맞추어 글로 쓴다 등)을 선택해야 합니다."
+                )
 
     passed = (len(issues) == 0)
     return CurriculumCheckResult(passed=passed, issues=issues, found_codes=found_code_names)

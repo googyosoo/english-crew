@@ -388,6 +388,54 @@ def test_phase4_0_answer_check():
     assert any("최대 허용 조건" in i for i in ls_res.issues), f"Wrong issue: {ls_res.issues}"
     print("PASS: Over-sentence model answer correctly caught by AnswerCheck!")
 
+def test_phase4_0b_enhancements():
+    # 1. Regression fixture: regression_rubric_overlap.md must fail
+    overlap_fixture_path = PROJECT_ROOT / "tests" / "fixtures" / "regression_rubric_overlap.md"
+    assert overlap_fixture_path.exists(), "regression_rubric_overlap.md not found!"
+    overlap_content = overlap_fixture_path.read_text(encoding="utf-8")
+    
+    rub_res = check_rubric(overlap_content)
+    assert not rub_res.passed, "regression_rubric_overlap.md must fail check_rubric!"
+    assert any("수량 기준이 동일" in i for i in rub_res.issues), f"Overlap quantity check missing: {rub_res.issues}"
+    assert any("별도 감점 규정" in i for i in rub_res.issues), f"Deduction check missing: {rub_res.issues}"
+    print(f"PASS: regression_rubric_overlap.md correctly caught {len(rub_res.issues)} issues (adjacent duplicate quantity criteria & external deduction rules)!")
+
+    # 2. No-body mode curriculum check: summary standard should fail
+    no_body_summary_sample = """
+본문 미제공: 일반 주제 기준으로 작성함
+
+## 1. 성취기준
+- 성취기준: [12영Ⅰ-02-04] 듣거나 읽은 내용을 말이나 글로 요약한다.
+"""
+    cur_res = check_curriculum(no_body_summary_sample)
+    assert not cur_res.passed, "Summary standard in no-body mode must fail!"
+    assert any("요약 성취기준" in i for i in cur_res.issues), f"No-body summary violation not caught: {cur_res.issues}"
+    print("PASS: Summary curriculum standard in no-body mode correctly rejected by CurriculumCheck!")
+
+    # 3. Exporter table formatting (tblHeader & cantSplit)
+    import docx
+    from docx import Document
+    from backend.app.services.exporter import convert_markdown_to_docx
+    test_docx = Path(temp_dir) / "test_export_table.docx"
+    sample_md = """
+# 테스트 문서
+
+| 평가요소 | A수준 | B수준 |
+| :--- | :--- | :--- |
+| 어휘 | 3개 이상 | 2개 이하 |
+"""
+    convert_markdown_to_docx(sample_md, test_docx, "테스트")
+    assert test_docx.exists()
+    doc = Document(str(test_docx))
+    assert len(doc.tables) == 1
+    tbl = doc.tables[0]
+    # Check tblHeader in row 0
+    trPr0 = tbl.rows[0]._tr.find(docx.oxml.ns.qn('w:trPr'))
+    assert trPr0 is not None
+    assert trPr0.find(docx.oxml.ns.qn('w:tblHeader')) is not None, "Header row must have w:tblHeader!"
+    assert trPr0.find(docx.oxml.ns.qn('w:cantSplit')) is not None, "Row must have w:cantSplit!"
+    print("PASS: Exporter docx table formatting (w:tblHeader & w:cantSplit) verified 100%!")
+
 
 if __name__ == "__main__":
     try:
@@ -399,6 +447,7 @@ if __name__ == "__main__":
         test_rubric_check_logic()
         test_phase4_0_rubric_check_enhancements()
         test_phase4_0_answer_check()
+        test_phase4_0b_enhancements()
         test_seteuk_check_and_byte_counter_3_cases()
         test_context_notes_and_students_api()
         test_approval_adds_lesson_record_automatically()
