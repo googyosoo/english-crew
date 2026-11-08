@@ -308,6 +308,87 @@ def test_approval_adds_lesson_record_automatically():
     print("PASS: Approval successfully added lesson record (차시기록) with exact unit and first summary line!")
 
 
+def test_phase4_0_rubric_check_enhancements():
+    from backend.app.services.checks.rubric_check import check_rubric
+
+    # 1. Regression fixture: regression_rubric_no_body.md MUST fail
+    fixture_path = PROJECT_ROOT / "tests" / "fixtures" / "regression_rubric_no_body.md"
+    assert fixture_path.exists(), "regression_rubric_no_body.md does not exist!"
+    res = check_rubric(fixture_path.read_text(encoding="utf-8"))
+    assert not res.passed, "regression_rubric_no_body.md should have failed!"
+    # Check that issues contain content D and organization C/D
+    all_issues_str = " ".join(res.issues)
+    assert "29행" in all_issues_str or "31행" in all_issues_str or "수량 기준" in all_issues_str or "미흡" in all_issues_str
+    print(f"PASS: regression_rubric_no_body.md correctly caught {len(res.issues)} issues!")
+
+    # 2. Condition n mismatch in the same row
+    mismatched_row_rubric = """
+# 루브릭 테스트
+
+| 평가요소 | A 수준 | B 수준 | C 수준 | D 수준 |
+| :--- | :--- | :--- | :--- | :--- |
+| 조건 충족도 (10점) | 4개 중 4개 충족 (10점) | 조건 4개 중 3개 충족 (8점) | 조건 3개 중 2개 충족 (6점) | 조건 4개 중 1개 충족 (4점) |
+"""
+    res_mismatch = check_rubric(mismatched_row_rubric)
+    assert not res_mismatch.passed, "Mismatched condition n should fail!"
+    assert any("불일치" in issue for issue in res_mismatch.issues), f"Missing mismatch issue in: {res_mismatch.issues}"
+    print("PASS: Inconsistent condition count (n) within the same row correctly caught!")
+
+    # 3. Clean rubric with scope score formats [5~6점] correctly stripped before check
+    valid_with_scope_scores = """
+# 루브릭 테스트
+
+| 평가요소 | A 수준 | B 수준 | C 수준 | D 수준 |
+| :--- | :--- | :--- | :--- | :--- |
+| 내용 요약 (10점) | [9~10점] 핵심 근거 3개 이상 제시 | [7~8점] 핵심 근거 2개 제시 | [5~6점] 핵심 근거 1개 제시 | [0~4점] 핵심 근거 0개 제시 |
+"""
+    res_scope = check_rubric(valid_with_scope_scores)
+    assert res_scope.passed, f"Valid rubric with scope scores failed: {res_scope.issues}"
+    print("PASS: Scope score formats [5~6점] stripped cleanly without breaking quantitative checks!")
+
+
+def test_phase4_0_answer_check():
+    from backend.app.services.checks.answer_check import check_model_answer
+
+    # Case 1: Meets all conditions
+    valid_prompt = """
+## 2. 논술형 평가 문항
+다음 일반 주제에 대해 30~50단어 내외, 2~3문장의 영문 에세이를 작성하시오.
+
+## 3. 모범 답안
+> In modern society, continuous learning is essential for personal growth. It enables individuals to adapt to technological changes effectively. Therefore, developing a habit of daily reading contributes to long-term success.
+"""
+    v_res = check_model_answer(valid_prompt)
+    assert v_res.passed, f"Valid answer check failed: {v_res.issues}"
+    print(f"PASS: AnswerCheck passed valid answer ({v_res.actual_words} words, {v_res.actual_sentences} sentences)")
+
+    # Case 2: Word count too low
+    short_prompt = """
+## 2. 논술형 평가 문항
+150단어 이상 200단어 이내로 서술하시오.
+
+## 3. 모범 답안
+> Technology changes communication quickly and effectively.
+"""
+    s_res = check_model_answer(short_prompt)
+    assert not s_res.passed, "Too short answer should fail!"
+    assert any("최소 요구 조건" in i for i in s_res.issues), f"Wrong issue: {s_res.issues}"
+    print("PASS: Under-length model answer correctly caught by AnswerCheck!")
+
+    # Case 3: Sentence count too high
+    long_sentences_prompt = """
+## 2. 논술형 평가 문항
+반드시 2문장 이내로 작성하시오.
+
+## 3. 모범 답안
+> First sentence is here. Second sentence is here. Third sentence is here.
+"""
+    ls_res = check_model_answer(long_sentences_prompt)
+    assert not ls_res.passed, "Too many sentences should fail!"
+    assert any("최대 허용 조건" in i for i in ls_res.issues), f"Wrong issue: {ls_res.issues}"
+    print("PASS: Over-sentence model answer correctly caught by AnswerCheck!")
+
+
 if __name__ == "__main__":
     try:
         asyncio.run(init_db())
@@ -316,6 +397,8 @@ if __name__ == "__main__":
         test_gemini_payload_anonymity_with_5_students_csv()
         test_curriculum_check_logic()
         test_rubric_check_logic()
+        test_phase4_0_rubric_check_enhancements()
+        test_phase4_0_answer_check()
         test_seteuk_check_and_byte_counter_3_cases()
         test_context_notes_and_students_api()
         test_approval_adds_lesson_record_automatically()

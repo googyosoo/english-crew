@@ -14,6 +14,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from backend.app.services.checks.curriculum_check import check_curriculum
 from backend.app.services.checks.rubric_check import check_rubric
+from backend.app.services.checks.answer_check import check_model_answer
 
 BASE_URL = "http://127.0.0.1:8765"
 E2E_DATA_DIR = PROJECT_ROOT / "tests" / "e2e_data"
@@ -172,6 +173,14 @@ async def run_e2e():
             print(f"[Rubric Check for {t_id}]:")
             print(f"  Passed: {rub_res.passed}")
             print(f"  Issues: {rub_res.issues}")
+
+            # Answer check
+            ans_res = check_model_answer(content)
+            print(f"[Answer Check for {t_id}]:")
+            print(f"  Passed: {ans_res.passed}")
+            print(f"  Word Count: {ans_res.actual_words} (Condition: {ans_res.word_condition})")
+            print(f"  Sentence Count: {ans_res.actual_sentences} (Condition: {ans_res.sentence_condition})")
+            print(f"  Issues: {ans_res.issues}")
 
             # Check for retry history in check_infos
             if t_id in check_infos:

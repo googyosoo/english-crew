@@ -22,6 +22,7 @@ from backend.app.services.workspace_manager import (
 from backend.app.services.event_bus import event_bus
 from backend.app.services.anonymizer import anonymize_text, deanonymize_text
 from backend.app.services.checks.rubric_check import check_rubric
+from backend.app.services.checks.answer_check import check_model_answer
 from backend.app.services.checks.seteuk_check import check_seteuk
 from backend.app.services.checks.curriculum_check import check_curriculum, get_course_standards_text
 
@@ -374,17 +375,26 @@ async def process_teacher_request(
                         check_res = check_curriculum(raw_output)
                     check_info = check_res.to_dict()
 
-                # Rule 3: Rubric Check for assessment bot
+                # Rule 3: Rubric Check & Answer Check for assessment bot
                 elif bot_id == "assessment":
-                    check_res = check_rubric(raw_output)
+                    rubric_res = check_rubric(raw_output)
+                    ans_res = check_model_answer(raw_output)
                     first_attempt_output = None
                     first_attempt_check = None
-                    if not check_res.passed:
+
+                    combined_issues = list(rubric_res.issues) + list(ans_res.issues)
+                    if combined_issues:
                         # 1-time automatic self-healing retry!
-                        logger.warning(f"Assessment output check failed: {check_res.issues}. Triggering 1-time retry...")
+                        logger.warning(f"Assessment output checks failed ({len(combined_issues)} issues). Triggering 1-time retry...")
                         first_attempt_output = raw_output
-                        first_attempt_check = check_res.to_dict()
-                        feedback_prompt = f"다음 검사 지적 사항을 반드시 수정하여 다시 작성하십시오:\n- " + "\n- ".join(check_res.issues)
+                        first_attempt_check = {
+                            "passed": False,
+                            "rubric_issues": rubric_res.issues,
+                            "answer_issues": ans_res.issues,
+                            "issues": combined_issues,
+                            "status_label": f"수정 필요 ({len(combined_issues)}건)"
+                        }
+                        feedback_prompt = f"다음 검사 지적 사항(루브릭 및 모범답안 조건)을 반드시 수정하여 다시 작성하십시오:\n- " + "\n- ".join(combined_issues)
                         raw_output = await execute_bot_task(
                             bot_id=bot_id,
                             title=title,
@@ -396,8 +406,17 @@ async def process_teacher_request(
                             feedback_instructions=feedback_prompt
                         )
                         # Re-check after retry
-                        check_res = check_rubric(raw_output)
-                    check_info = check_res.to_dict()
+                        rubric_res = check_rubric(raw_output)
+                        ans_res = check_model_answer(raw_output)
+
+                    final_issues = list(rubric_res.issues) + list(ans_res.issues)
+                    check_info = {
+                        "passed": len(final_issues) == 0,
+                        "issues": final_issues,
+                        "status_label": "통과" if len(final_issues) == 0 else f"수정 필요 ({len(final_issues)}건)",
+                        "rubric_check": rubric_res.to_dict(),
+                        "answer_check": ans_res.to_dict()
+                    }
                     if first_attempt_output is not None:
                         check_info["retry_occurred"] = True
                         check_info["first_attempt_output"] = first_attempt_output
