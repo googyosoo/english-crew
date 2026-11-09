@@ -102,7 +102,7 @@ async function startBackend() {
       CREW_DEV_MODE: '1',
     });
 
-    const args = ['-m', 'uvicorn', 'backend.app.main:app', '--host', '127.0.0.1', '--port', String(apiPort)];
+    const args = ['-m', 'uvicorn', 'backend.app.main:app', '--host', '127.0.0.1', '--port', String(apiPort), '--no-access-log'];
 
     console.log(`[Backend] Starting FastAPI in dev mode on port ${apiPort} using: ${pythonPath}`);
     backendProcess = spawn(pythonPath, args, {
@@ -173,7 +173,14 @@ function createWindow() {
     };
     loadDevServer();
   } else {
-    mainWindow.loadFile(path.join(__dirname, '../frontend/dist/index.html'));
+    // Packaged mode: load from backend server serving static files (same-origin, no CORS needed)
+    const backendUrl = `http://127.0.0.1:${apiPort}/`;
+    const loadBackendServer = () => {
+      mainWindow.loadURL(backendUrl).catch(() => {
+        setTimeout(loadBackendServer, 300);
+      });
+    };
+    loadBackendServer();
   }
 
   mainWindow.on('closed', () => {

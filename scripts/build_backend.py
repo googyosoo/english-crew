@@ -8,6 +8,7 @@ def build_backend():
     main_py = project_root / "backend" / "app" / "main.py"
     agents_dir = project_root / "backend" / "agents"
     curriculum_data_dir = project_root / "docs" / "source-skills" / "kr-curriculum-2022" / "data"
+    frontend_dist_dir = project_root / "frontend" / "dist"
     output_dir = project_root / "backend-dist"
 
     print("==================================================")
@@ -38,6 +39,7 @@ def build_backend():
         "--specpath", str(build_tmp),
         f"--add-data={agents_dir}{sep}backend/agents",
         f"--add-data={curriculum_data_dir}{sep}docs/source-skills/kr-curriculum-2022/data",
+        f"--add-data={frontend_dist_dir}{sep}frontend/dist",
         "--hidden-import=uvicorn.logging",
         "--hidden-import=uvicorn.loops",
         "--hidden-import=uvicorn.loops.auto",
@@ -53,6 +55,7 @@ def build_backend():
         "--hidden-import=docx",
         "--hidden-import=fastapi",
         "--hidden-import=starlette",
+        "--hidden-import=starlette.staticfiles",
         "--hidden-import=backend.app.routers.health",
         "--hidden-import=backend.app.routers.channels",
         "--hidden-import=backend.app.routers.approvals",

@@ -21,6 +21,7 @@ def test_token_authentication_and_cors():
     test_token = secrets.token_hex(32) # 32 bytes (64 hex characters)
     os.environ["CREW_API_TOKEN"] = test_token
     os.environ["CREW_DEV_MODE"] = "1"
+    os.environ["CREW_DEV_NO_AUTH"] = "0"
 
     # Import app after setting env vars
     from backend.app.main import app
@@ -81,7 +82,8 @@ def test_token_authentication_and_cors():
     print("PASS: 7. CORS rejects unauthorized origin (http://evil.com).")
 
     # Clean up test env
-    del os.environ["CREW_API_TOKEN"]
+    os.environ.pop("CREW_API_TOKEN", None)
+    os.environ.pop("CREW_DEV_NO_AUTH", None)
 
 if __name__ == "__main__":
     test_token_authentication_and_cors()
