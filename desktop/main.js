@@ -1,12 +1,54 @@
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const net = require('net');
+const crypto = require('crypto');
 const { spawn, execSync } = require('child_process');
 
 let mainWindow = null;
 let backendProcess = null;
 
-function startBackend() {
+// Generate 32-byte secure random token on each application launch
+const apiToken = crypto.randomBytes(32).toString('hex');
+let apiPort = 8765;
+
+// Check if a specific port is free to listen on
+function checkPortAvailable(port) {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    server.once('error', () => {
+      resolve(false);
+    });
+    server.once('listening', () => {
+      server.close(() => resolve(true));
+    });
+    server.listen(port, '127.0.0.1');
+  });
+}
+
+// Find an available dynamic port by listening on port 0
+function getFreePort() {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.listen(0, '127.0.0.1', () => {
+      const port = server.address().port;
+      server.close(() => resolve(port));
+    });
+    server.on('error', reject);
+  });
+}
+
+async function determineBackendPort() {
+  const isDefaultFree = await checkPortAvailable(8765);
+  if (isDefaultFree) {
+    return 8765;
+  }
+  const dynamicPort = await getFreePort();
+  console.log(`[Backend] Port 8765 is currently in use. Selected dynamic port: ${dynamicPort}`);
+  return dynamicPort;
+}
+
+async function startBackend() {
   const rootDir = path.join(__dirname, '..');
   const isWin = process.platform === 'win32';
   const userDataPath = app.getPath('userData');
@@ -18,6 +60,9 @@ function startBackend() {
     console.warn('[Backend] Could not create userData data directory:', e);
   }
 
+  apiPort = await determineBackendPort();
+  console.log(`[Backend] Launching backend on port ${apiPort} with 32-byte security token`);
+
   const isPackaged = app.isPackaged;
   const packagedExe = path.join(process.resourcesPath, 'backend-dist', 'english-crew-backend.exe');
 
@@ -26,9 +71,14 @@ function startBackend() {
     const env = Object.assign({}, process.env, {
       CREW_USER_DATA_DIR: userDataPath,
       CREW_DATA_DIR: dataDir,
+      CREW_API_TOKEN: apiToken,
+      CREW_PORT: String(apiPort),
+      CREW_DEV_MODE: '0',
     });
 
-    backendProcess = spawn(packagedExe, [], {
+    const args = ['--port', String(apiPort)];
+
+    backendProcess = spawn(packagedExe, args, {
       cwd: userDataPath,
       env: env,
       shell: false,
@@ -46,11 +96,18 @@ function startBackend() {
       pythonPath = venvPythonPosix;
     }
 
-    const args = ['-m', 'uvicorn', 'backend.app.main:app', '--host', '127.0.0.1', '--port', '8765'];
+    const env = Object.assign({}, process.env, {
+      CREW_API_TOKEN: apiToken,
+      CREW_PORT: String(apiPort),
+      CREW_DEV_MODE: '1',
+    });
 
-    console.log(`[Backend] Starting FastAPI in dev mode using: ${pythonPath}`);
+    const args = ['-m', 'uvicorn', 'backend.app.main:app', '--host', '127.0.0.1', '--port', String(apiPort)];
+
+    console.log(`[Backend] Starting FastAPI in dev mode on port ${apiPort} using: ${pythonPath}`);
     backendProcess = spawn(pythonPath, args, {
       cwd: rootDir,
+      env: env,
       shell: false,
       stdio: 'pipe',
     });
@@ -97,7 +154,11 @@ function createWindow() {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
-      preload: path.join(__dirname, 'preload.js')
+      preload: path.join(__dirname, 'preload.js'),
+      additionalArguments: [
+        `--crew-token=${apiToken}`,
+        `--crew-port=${apiPort}`
+      ]
     }
   });
 
@@ -105,7 +166,6 @@ function createWindow() {
   const isDev = !app.isPackaged && process.env.NODE_ENV !== 'production';
 
   if (isDev) {
-    // Retry loading in case Vite is still warming up
     const loadDevServer = () => {
       mainWindow.loadURL(devUrl).catch(() => {
         setTimeout(loadDevServer, 500);
@@ -121,8 +181,17 @@ function createWindow() {
   });
 }
 
-app.whenReady().then(() => {
-  startBackend();
+// IPC handler to provide API config safely to renderer
+ipcMain.handle('get-api-config', () => {
+  return {
+    token: apiToken,
+    port: apiPort,
+    apiUrl: `http://127.0.0.1:${apiPort}`
+  };
+});
+
+app.whenReady().then(async () => {
+  await startBackend();
   createWindow();
 
   app.on('activate', () => {

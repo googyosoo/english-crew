@@ -1,8 +1,39 @@
-const API_BASE = 'http://127.0.0.1:8765';
+// API Client with Dynamic Port and Token Authentication (Phase 4-3b Security)
+
+export function getApiBase() {
+  if (typeof window !== 'undefined' && window.electronAPI && typeof window.electronAPI.getApiUrl === 'function') {
+    return window.electronAPI.getApiUrl();
+  }
+  return 'http://127.0.0.1:8765';
+}
+
+export function getApiToken() {
+  if (typeof window !== 'undefined' && window.electronAPI && typeof window.electronAPI.getToken === 'function') {
+    return window.electronAPI.getToken();
+  }
+  return '';
+}
+
+async function authFetch(endpoint, options = {}) {
+  const base = getApiBase();
+  const token = getApiToken();
+  const headers = { ...options.headers };
+
+  if (token) {
+    headers['X-Crew-Token'] = token;
+  }
+
+  const res = await fetch(`${base}${endpoint}`, {
+    ...options,
+    headers,
+  });
+
+  return res;
+}
 
 export async function fetchHealth() {
   try {
-    const res = await fetch(`${API_BASE}/health`);
+    const res = await authFetch('/health');
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json();
   } catch (err) {
@@ -11,25 +42,25 @@ export async function fetchHealth() {
 }
 
 export async function fetchChannels() {
-  const res = await fetch(`${API_BASE}/channels`);
+  const res = await authFetch('/channels');
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return await res.json();
 }
 
 export async function fetchBots() {
-  const res = await fetch(`${API_BASE}/bots`);
+  const res = await authFetch('/bots');
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return await res.json();
 }
 
 export async function fetchMessages(channelId) {
-  const res = await fetch(`${API_BASE}/channels/${channelId}/messages`);
+  const res = await authFetch(`/channels/${channelId}/messages`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return await res.json();
 }
 
 export async function sendRequest(channelId, content) {
-  const res = await fetch(`${API_BASE}/channels/${channelId}/requests`, {
+  const res = await authFetch(`/channels/${channelId}/requests`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ content }),
@@ -42,7 +73,7 @@ export async function sendRequest(channelId, content) {
 }
 
 export async function decideApproval(approvalId, decision, reason = '') {
-  const res = await fetch(`${API_BASE}/approvals/${approvalId}`, {
+  const res = await authFetch(`/approvals/${approvalId}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ decision, reason }),
@@ -55,22 +86,22 @@ export async function decideApproval(approvalId, decision, reason = '') {
 }
 
 export async function fetchTaskDeliverable(taskId) {
-  const res = await fetch(`${API_BASE}/tasks/${taskId}/deliverable`);
+  const res = await authFetch(`/tasks/${taskId}/deliverable`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return await res.json();
 }
 
 export async function fetchChannelContext(channelId, unit = '') {
   const url = unit
-    ? `${API_BASE}/channels/${channelId}/context?unit=${encodeURIComponent(unit)}`
-    : `${API_BASE}/channels/${channelId}/context`;
-  const res = await fetch(url);
+    ? `/channels/${channelId}/context?unit=${encodeURIComponent(unit)}`
+    : `/channels/${channelId}/context`;
+  const res = await authFetch(url);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return await res.json();
 }
 
 export async function saveChannelContext(channelId, noteData) {
-  const res = await fetch(`${API_BASE}/channels/${channelId}/context`, {
+  const res = await authFetch(`/channels/${channelId}/context`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(noteData),
@@ -83,7 +114,7 @@ export async function saveChannelContext(channelId, noteData) {
 }
 
 export async function deleteChannelContext(noteId) {
-  const res = await fetch(`${API_BASE}/context/${noteId}`, {
+  const res = await authFetch(`/context/${noteId}`, {
     method: 'DELETE',
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -91,17 +122,20 @@ export async function deleteChannelContext(noteId) {
 }
 
 export function getExportUrl(requestId, format = 'docx') {
-  return `${API_BASE}/requests/${requestId}/export?format=${format}`;
+  const base = getApiBase();
+  const token = getApiToken();
+  const tokenParam = token ? `&token=${encodeURIComponent(token)}` : '';
+  return `${base}/requests/${requestId}/export?format=${format}${tokenParam}`;
 }
 
 export async function fetchExportDir() {
-  const res = await fetch(`${API_BASE}/settings/export_dir`);
+  const res = await authFetch('/settings/export_dir');
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return await res.json();
 }
 
 export async function saveExportDir(exportDir) {
-  const res = await fetch(`${API_BASE}/settings/export_dir`, {
+  const res = await authFetch('/settings/export_dir', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ export_dir: exportDir }),
@@ -111,13 +145,13 @@ export async function saveExportDir(exportDir) {
 }
 
 export async function fetchRoutines() {
-  const res = await fetch(`${API_BASE}/routines`);
+  const res = await authFetch('/routines');
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return await res.json();
 }
 
 export async function createRoutine(routineData) {
-  const res = await fetch(`${API_BASE}/routines`, {
+  const res = await authFetch('/routines', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(routineData),
@@ -130,7 +164,7 @@ export async function createRoutine(routineData) {
 }
 
 export async function updateRoutine(routineId, updateData) {
-  const res = await fetch(`${API_BASE}/routines/${routineId}`, {
+  const res = await authFetch(`/routines/${routineId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(updateData),
@@ -143,7 +177,7 @@ export async function updateRoutine(routineId, updateData) {
 }
 
 export async function deleteRoutine(routineId) {
-  const res = await fetch(`${API_BASE}/routines/${routineId}`, {
+  const res = await authFetch(`/routines/${routineId}`, {
     method: 'DELETE',
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -151,7 +185,7 @@ export async function deleteRoutine(routineId) {
 }
 
 export async function runRoutineNow(routineId) {
-  const res = await fetch(`${API_BASE}/routines/${routineId}/run`, {
+  const res = await authFetch(`/routines/${routineId}/run`, {
     method: 'POST',
   });
   if (!res.ok) {
@@ -162,13 +196,13 @@ export async function runRoutineNow(routineId) {
 }
 
 export async function fetchApiKeyStatus() {
-  const res = await fetch(`${API_BASE}/settings/api_key`);
+  const res = await authFetch('/settings/api_key');
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return await res.json();
 }
 
 export async function saveApiKey(apiKey, model = null) {
-  const res = await fetch(`${API_BASE}/settings/api_key`, {
+  const res = await authFetch('/settings/api_key', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ api_key: apiKey, model }),
@@ -181,7 +215,12 @@ export async function saveApiKey(apiKey, model = null) {
 }
 
 export function subscribeToRequestEvents(requestId, onEvent, onError) {
-  const url = `${API_BASE}/requests/${requestId}/events`;
+  const base = getApiBase();
+  const token = getApiToken();
+  const url = token
+    ? `${base}/requests/${requestId}/events?token=${encodeURIComponent(token)}`
+    : `${base}/requests/${requestId}/events`;
+
   const eventSource = new EventSource(url);
 
   eventSource.onmessage = (event) => {

@@ -1,10 +1,13 @@
 import os
 import sys
 import time
+import socket
 import shutil
 import tempfile
 import urllib.request
+import urllib.error
 import json
+import secrets
 import subprocess
 from pathlib import Path
 from dotenv import load_dotenv
@@ -20,14 +23,29 @@ UNPACKED_APP = PROJECT_ROOT / "release" / "win-unpacked" / "English Crew.exe"
 PACKAGED_BACKEND_EXE = PROJECT_ROOT / "release" / "win-unpacked" / "resources" / "backend-dist" / "english-crew-backend.exe"
 STANDALONE_BACKEND_EXE = PROJECT_ROOT / "backend-dist" / "english-crew-backend.exe"
 
-def run_api_request(url, method="GET", data=None, timeout=30):
+def get_free_port():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(('127.0.0.1', 0))
+        return s.getsockname()[1]
+
+def run_api_request(url, method="GET", data=None, timeout=30, token=None):
     req_data = None
     headers = {"Content-Type": "application/json"}
+    if token:
+        headers["X-Crew-Token"] = token
     if data is not None:
         req_data = json.dumps(data).encode("utf-8")
     req = urllib.request.Request(url, data=req_data, headers=headers, method=method)
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="replace")
+        try:
+            parsed = json.loads(body)
+        except Exception:
+            parsed = {"detail": body}
+        return {"_status_code": e.code, **parsed}
 
 def test_full_packaging_verification():
     print("=" * 70)
@@ -67,33 +85,39 @@ def test_full_packaging_verification():
     # -------------------------------------------------------------
     # (b) 설치본 첫 실행 시 API 키 입력 화면 및 userData/.env 저장 확인
     # -------------------------------------------------------------
-    print("\n[Criterion b] Verifying first-run API key setup into userData/.env...")
+    print("\n[Criterion b] Verifying first-run API key setup into userData/.env with token & dynamic port...")
     temp_user_data = Path(tempfile.mkdtemp(prefix="crew_isolated_userdata_"))
     temp_data_dir = temp_user_data / "data"
     temp_data_dir.mkdir(parents=True, exist_ok=True)
 
+    test_token = secrets.token_hex(32)
+    test_port = get_free_port() # Dynamic free port allocation
+
     env = os.environ.copy()
     env["CREW_USER_DATA_DIR"] = str(temp_user_data)
     env["CREW_DATA_DIR"] = str(temp_data_dir)
+    env["CREW_API_TOKEN"] = test_token
+    env["CREW_PORT"] = str(test_port)
     # Ensure no pre-existing key in env
     if "GEMINI_API_KEY" in env:
         del env["GEMINI_API_KEY"]
 
     print(f"  -> Isolated userData directory: {temp_user_data}")
     print(f"  -> Isolated data directory: {temp_data_dir}")
+    print(f"  -> Target Port: {test_port}, Token: {test_token[:8]}...")
 
     # Launch packaged backend from release directory with stdout/stderr piped to a log file
     log_file_path = temp_user_data / "backend_server.log"
     log_file = open(log_file_path, "w", encoding="utf-8")
     proc = subprocess.Popen(
-        [str(PACKAGED_BACKEND_EXE)],
+        [str(PACKAGED_BACKEND_EXE), "--port", str(test_port)],
         env=env,
         cwd=str(temp_user_data),
         stdout=log_file,
         stderr=subprocess.STDOUT
     )
 
-    base_url = "http://127.0.0.1:8765"
+    base_url = f"http://127.0.0.1:{test_port}"
     backend_pid = proc.pid
     print(f"  -> Launched packaged backend process (PID: {backend_pid})")
 
@@ -103,8 +127,9 @@ def test_full_packaging_verification():
         for _ in range(50):
             time.sleep(0.5)
             if proc.poll() is not None:
-                out, err = proc.communicate()
-                raise RuntimeError(f"Backend exited early (code {proc.returncode}):\n{err.decode('utf-8', errors='replace')}")
+                log_file.flush()
+                err_text = log_file_path.read_text(encoding="utf-8", errors="replace") if log_file_path.exists() else ""
+                raise RuntimeError(f"Backend exited early (code {proc.returncode}):\n{err_text}")
             try:
                 h = run_api_request(f"{base_url}/health")
                 if h.get("status") == "ok":
@@ -114,8 +139,13 @@ def test_full_packaging_verification():
                 pass
         assert healthy, "Packaged backend failed to answer /health within 25s"
 
-        # Check initial API key state (should be not configured)
-        key_status = run_api_request(f"{base_url}/settings/api_key")
+        # Verify unauthenticated request without token returns 401
+        unauth_resp = run_api_request(f"{base_url}/settings/api_key")
+        assert unauth_resp.get("_status_code") == 401, f"Expected 401 without token, got: {unauth_resp}"
+        print("  -> Confirmed request without X-Crew-Token returns 401 Unauthorized.")
+
+        # Check initial API key state with valid token (should be not configured)
+        key_status = run_api_request(f"{base_url}/settings/api_key", token=test_token)
         print(f"  -> Initial API key status: configured={key_status.get('configured')}")
         assert key_status.get("configured") is False, "Initial run must have configured=False to trigger setup UI"
 
@@ -128,7 +158,8 @@ def test_full_packaging_verification():
         save_resp = run_api_request(
             f"{base_url}/settings/api_key",
             method="POST",
-            data={"api_key": actual_key, "model": "gemini-3.5-flash-lite"}
+            data={"api_key": actual_key, "model": "gemini-3.5-flash-lite"},
+            token=test_token
         )
         print(f"  -> Saved API key response: {save_resp}")
         assert save_resp.get("status") in ("saved", "ok")
@@ -142,7 +173,7 @@ def test_full_packaging_verification():
         print(f"  -> Confirmed .env file created at: {saved_env_file}")
 
         # Check API key status endpoint again
-        updated_status = run_api_request(f"{base_url}/settings/api_key")
+        updated_status = run_api_request(f"{base_url}/settings/api_key", token=test_token)
         print(f"  -> Updated API key status: configured={updated_status.get('configured')}, masked={updated_status.get('masked_key')}")
         assert updated_status.get("configured") is True
         print("PASS: [Criterion b] First-run API key modal triggers correctly and saves safely to userData/.env.")
@@ -151,7 +182,7 @@ def test_full_packaging_verification():
         # (d) 설치본에서 요청 1건이 결재까지 진행 확인
         # -------------------------------------------------------------
         print("\n[Criterion d] Verifying 1 request from user input to approval decision in packaged binary...")
-        channels = run_api_request(f"{base_url}/channels")
+        channels = run_api_request(f"{base_url}/channels", token=test_token)
         eng1_channel = next((c for c in channels if c.get("name") == "영어Ⅰ"), None)
         assert eng1_channel is not None, "영어Ⅰ channel not found"
         channel_id = eng1_channel["id"]
@@ -167,7 +198,8 @@ def test_full_packaging_verification():
             msg_resp = run_api_request(
                 f"{base_url}/channels/{channel_id}/requests",
                 method="POST",
-                data={"content": user_message_text}
+                data={"content": user_message_text},
+                token=test_token
             )
             req_id = msg_resp.get("request_id")
             print(f"  -> Posted teacher request (ID: {req_id})")
@@ -178,7 +210,7 @@ def test_full_packaging_verification():
                 time.sleep(3)
                 try:
                     # Check messages in the channel with a 10s timeout
-                    messages = run_api_request(f"{base_url}/channels/{channel_id}/messages", timeout=10)
+                    messages = run_api_request(f"{base_url}/channels/{channel_id}/messages", timeout=10, token=test_token)
                     approval_msgs = [
                         m for m in messages
                         if m.get("type") == "approval" and m.get("metadata", {}).get("status") == "pending"
@@ -226,7 +258,8 @@ def test_full_packaging_verification():
         decision_resp = run_api_request(
             f"{base_url}/approvals/{approval_id}",
             method="POST",
-            data={"decision": "approved", "reason": "패키징 바이너리 검증 승인"}
+            data={"decision": "approved", "reason": "패키징 바이너리 검증 승인"},
+            token=test_token
         )
         print(f"  -> Decision response: {decision_resp}")
         assert decision_resp.get("status") in ("approved", "success") or "id" in decision_resp
@@ -243,12 +276,20 @@ def test_full_packaging_verification():
         target_req_id = approval_msgs[-1].get("metadata", {}).get("request_id")
         print(f"  -> Verifying docx export endpoint for request: {target_req_id}...")
         docx_url = f"{base_url}/requests/{target_req_id}/export?format=docx"
-        req_docx = urllib.request.Request(docx_url)
+        req_docx = urllib.request.Request(docx_url, headers={"X-Crew-Token": test_token})
         with urllib.request.urlopen(req_docx, timeout=15) as docx_resp:
             assert docx_resp.status == 200
             docx_bytes = docx_resp.read()
             assert len(docx_bytes) > 1000, f"Docx file too small: {len(docx_bytes)} bytes"
             print(f"  -> Word export endpoint returned valid .docx binary ({len(docx_bytes):,} bytes)")
+
+        # Also verify Word export via ?token= query parameter
+        docx_query_url = f"{base_url}/requests/{target_req_id}/export?format=docx&token={test_token}"
+        req_docx_q = urllib.request.Request(docx_query_url)
+        with urllib.request.urlopen(req_docx_q, timeout=15) as docx_q_resp:
+            assert docx_q_resp.status == 200
+            assert len(docx_q_resp.read()) > 1000
+            print("  -> Word export endpoint succeeded via ?token= query parameter as well.")
 
         print("PASS: [Criterion d] Request successfully completed all steps through approval and file export in packaged binary.")
 
