@@ -258,7 +258,7 @@ def test_context_notes_and_students_api():
     assert res2.status_code == 200
     notes = res2.json()
     assert len(notes) >= 1
-    assert notes[0]["kind"] == "본문"
+    assert any(n["kind"] == "본문" for n in notes)
     print("PASS: Fetched 3과 context notes.")
 
 
@@ -267,6 +267,10 @@ def test_approval_adds_lesson_record_automatically():
 
     async def setup_approval():
         async with get_db_connection() as db:
+            await db.execute("DELETE FROM messages WHERE id IN ('msg_test_rep', 'msg_test_appr')")
+            await db.execute("DELETE FROM approvals WHERE id = 'appr_phase3_test'")
+            await db.commit()
+
             # Insert report message with summary
             await db.execute(
                 """

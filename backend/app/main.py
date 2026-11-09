@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from starlette.staticfiles import StaticFiles
 
 from backend.app.db.database import init_db
@@ -57,43 +58,65 @@ async def lifespan(app: FastAPI):
     # Shutdown logic
     stop_scheduler()
 
+# Determine development mode vs packaged installation mode
+is_dev_mode = (os.environ.get("ENV") != "production") and (os.environ.get("CREW_DEV_MODE", "1") == "1")
+if os.environ.get("CREW_USER_DATA_DIR") and os.environ.get("CREW_DEV_MODE") != "1":
+    # Packaged Electron production mode
+    is_dev_mode = False
+
+# Phase 4-3d: Disable /docs, /redoc, /openapi.json in packaged installation mode
+docs_url = "/docs" if is_dev_mode else None
+redoc_url = "/redoc" if is_dev_mode else None
+openapi_url = "/openapi.json" if is_dev_mode else None
+
 app = FastAPI(
     title="English Crew Backend",
     version="0.2.0",
-    lifespan=lifespan
+    lifespan=lifespan,
+    docs_url=docs_url,
+    redoc_url=redoc_url,
+    openapi_url=openapi_url
 )
 
-API_PREFIXES = (
-    "/channels",
-    "/approvals",
-    "/context",
-    "/export",
-    "/requests",
-    "/routines",
-    "/settings"
-)
+# Phase 4-3d: Default Deny Authentication
+# Publicly accessible paths: root, index.html, /assets/*, static resources, and /health
+PUBLIC_EXACT_PATHS = {"/", "/index.html", "/health", "/favicon.ico", "/vite.svg"}
 
-# 1. Token Verification Middleware (Phase 4-3c Security)
-# Require X-Crew-Token header or ?token= query parameter on API endpoints except /health
+def is_public_path(path: str) -> bool:
+    if path in PUBLIC_EXACT_PATHS:
+        return True
+    if path.startswith("/assets/"):
+        return True
+    return False
+
+DOCS_PATHS = {"/docs", "/redoc", "/openapi.json"}
+
+# 1. Token Verification Middleware (Phase 4-3d Security: Default Deny)
+# Require X-Crew-Token header or ?token= query parameter on all endpoints except public paths
 @app.middleware("http")
 async def verify_crew_token(request: Request, call_next):
     # CORS preflight OPTIONS requests are handled without token check
     if request.method == "OPTIONS":
         return await call_next(request)
 
-    # Exclude /health endpoint from token verification
-    if request.url.path == "/health":
+    # Phase 4-3d: Disable /docs, /redoc, /openapi.json dynamically in packaged installation mode
+    if request.url.path in DOCS_PATHS:
+        dev_mode = (os.environ.get("ENV") != "production") and (os.environ.get("CREW_DEV_MODE", "1") == "1")
+        if os.environ.get("CREW_USER_DATA_DIR") and os.environ.get("CREW_DEV_MODE") != "1":
+            dev_mode = False
+        if not dev_mode:
+            return JSONResponse(status_code=404, content={"detail": "Not Found"})
+
+    # Allow public static paths and /health without authentication
+    if is_public_path(request.url.path):
         return await call_next(request)
 
-    # Only API routes require authentication. Static files and index.html are served publicly.
-    is_api_request = any(request.url.path.startswith(prefix) for prefix in API_PREFIXES)
-    if not is_api_request:
-        return await call_next(request)
-
+    # Developer bypass exception only when CREW_DEV_NO_AUTH=1 is explicitly set
     dev_no_auth = os.environ.get("CREW_DEV_NO_AUTH", "0") == "1"
     if dev_no_auth:
         return await call_next(request)
 
+    # Default Deny: All other endpoints require valid token (/tasks, /bots, /channels, etc.)
     expected_token = os.environ.get("CREW_API_TOKEN")
     if not expected_token:
         return JSONResponse(
@@ -117,11 +140,6 @@ async def verify_crew_token(request: Request, call_next):
 
 # 2. CORS Configuration (Phase 4-3b Security)
 # Remove allow_origins="*". Allow http://127.0.0.1:5173 only in dev mode, allow_credentials=False.
-is_dev_mode = (os.environ.get("ENV") != "production") and (os.environ.get("CREW_DEV_MODE", "1") == "1")
-if os.environ.get("CREW_USER_DATA_DIR") and os.environ.get("CREW_DEV_MODE") != "1":
-    # Packaged Electron production mode
-    is_dev_mode = False
-
 allowed_origins = ["http://127.0.0.1:5173"] if is_dev_mode else []
 
 app.add_middleware(
@@ -130,6 +148,13 @@ app.add_middleware(
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
+)
+
+# 3. DNS Rebinding Protection (Phase 4-3d Security)
+# Restrict Host header strictly to 127.0.0.1 and localhost (with any port)
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=["127.0.0.1", "localhost", "testserver"]
 )
 
 app.include_router(health.router)

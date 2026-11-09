@@ -102,23 +102,28 @@ class TestPhase41Export(unittest.TestCase):
 
         async def seed_data():
             async with get_db_connection() as db:
+                await db.execute("DELETE FROM messages WHERE id = 'msg_appr_exp'")
+                await db.execute("DELETE FROM approvals WHERE id = 'appr_exp'")
+                await db.execute("DELETE FROM tasks WHERE id IN ('tsk_cur', 'tsk_ass')")
+                await db.commit()
+
                 await db.execute(
                     """
-                    INSERT INTO messages (id, channel_id, sender, type, content, metadata_json)
+                    INSERT OR REPLACE INTO messages (id, channel_id, sender, type, content, metadata_json)
                     VALUES ('msg_appr_exp', 'eng1', 'coordinator', 'approval', '승인 완료', ?)
                     """,
                     (json.dumps({"request_id": req_id, "unit": "3과", "approval_id": "appr_exp"}, ensure_ascii=False),)
                 )
                 await db.execute(
-                    "INSERT INTO approvals (id, request_id, question, status) VALUES ('appr_exp', ?, '승인?', 'approved')",
+                    "INSERT OR REPLACE INTO approvals (id, request_id, question, status) VALUES ('appr_exp', ?, '승인?', 'approved')",
                     (req_id,)
                 )
                 await db.execute(
-                    "INSERT INTO tasks (id, request_id, bot_id, title, deliverable, status, output_path) VALUES ('tsk_cur', ?, 'curriculum', '교육과정', '과업', 'done', ?)",
+                    "INSERT OR REPLACE INTO tasks (id, request_id, bot_id, title, deliverable, status, output_path) VALUES ('tsk_cur', ?, 'curriculum', '교육과정', '과업', 'done', ?)",
                     (req_id, str(curriculum_file))
                 )
                 await db.execute(
-                    "INSERT INTO tasks (id, request_id, bot_id, title, deliverable, status, output_path) VALUES ('tsk_ass', ?, 'assessment', '평가문항', '과업', 'done', ?)",
+                    "INSERT OR REPLACE INTO tasks (id, request_id, bot_id, title, deliverable, status, output_path) VALUES ('tsk_ass', ?, 'assessment', '평가문항', '과업', 'done', ?)",
                     (req_id, str(assessment_file))
                 )
                 await db.commit()
@@ -147,7 +152,7 @@ class TestPhase41Export(unittest.TestCase):
         async def seed_unapproved():
             async with get_db_connection() as db:
                 await db.execute(
-                    "INSERT INTO approvals (id, request_id, question, status) VALUES ('appr_pending', ?, '승인?', 'pending')",
+                    "INSERT OR REPLACE INTO approvals (id, request_id, question, status) VALUES ('appr_pending', ?, '승인?', 'pending')",
                     (unappr_req,)
                 )
                 await db.commit()

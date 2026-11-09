@@ -56,6 +56,7 @@ def build_backend():
         "--hidden-import=fastapi",
         "--hidden-import=starlette",
         "--hidden-import=starlette.staticfiles",
+        "--hidden-import=starlette.middleware.trustedhost",
         "--hidden-import=backend.app.routers.health",
         "--hidden-import=backend.app.routers.channels",
         "--hidden-import=backend.app.routers.approvals",
