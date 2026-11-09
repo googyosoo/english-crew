@@ -94,6 +94,8 @@ def test_full_packaging_verification():
     test_port = get_free_port() # Dynamic free port allocation
 
     env = os.environ.copy()
+    env.pop("CREW_DEV_NO_AUTH", None)
+    env["CREW_DEV_MODE"] = "0"
     env["CREW_USER_DATA_DIR"] = str(temp_user_data)
     env["CREW_DATA_DIR"] = str(temp_data_dir)
     env["CREW_API_TOKEN"] = test_token

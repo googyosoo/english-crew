@@ -7,7 +7,7 @@ from starlette.testclient import TestClient
 # Ensure project root is in sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-def test_token_authentication_and_cors():
+def test_token_authentication_and_cors(monkeypatch):
     """
     [Phase 4-3b Security Tests]
     1. 토큰 없는 요청: 401 Unauthorized
@@ -19,9 +19,9 @@ def test_token_authentication_and_cors():
     7. CORS: 다른 Origin (http://evil.com) 요청 거부 (Access-Control-Allow-Origin 미반환)
     """
     test_token = secrets.token_hex(32) # 32 bytes (64 hex characters)
-    os.environ["CREW_API_TOKEN"] = test_token
-    os.environ["CREW_DEV_MODE"] = "1"
-    os.environ["CREW_DEV_NO_AUTH"] = "0"
+    monkeypatch.setenv("CREW_API_TOKEN", test_token)
+    monkeypatch.setenv("CREW_DEV_MODE", "1")
+    monkeypatch.setenv("CREW_DEV_NO_AUTH", "0")
 
     # Import app after setting env vars
     from backend.app.main import app
@@ -80,10 +80,6 @@ def test_token_authentication_and_cors():
     # Starlette CORSMiddleware does not attach access-control-allow-origin header for disallowed origins
     assert "access-control-allow-origin" not in resp_cors_rejected.headers
     print("PASS: 7. CORS rejects unauthorized origin (http://evil.com).")
-
-    # Clean up test env
-    os.environ.pop("CREW_API_TOKEN", None)
-    os.environ.pop("CREW_DEV_NO_AUTH", None)
 
 if __name__ == "__main__":
     test_token_authentication_and_cors()
