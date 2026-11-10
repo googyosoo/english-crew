@@ -18,7 +18,8 @@ if hasattr(sys.stderr, 'reconfigure'):
     sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-PORTABLE_EXE = PROJECT_ROOT / "release" / "English Crew 0.1.0.exe"
+PORTABLE_EXE = PROJECT_ROOT / "release" / "EnglishCrew-Portable.exe" if (PROJECT_ROOT / "release" / "EnglishCrew-Portable.exe").exists() else (PROJECT_ROOT / "release" / "English Crew 0.1.0.exe")
+SETUP_EXE = PROJECT_ROOT / "release" / "EnglishCrew-Setup.exe"
 UNPACKED_APP = PROJECT_ROOT / "release" / "win-unpacked" / "English Crew.exe"
 PACKAGED_BACKEND_EXE = PROJECT_ROOT / "release" / "win-unpacked" / "resources" / "backend-dist" / "english-crew-backend.exe"
 STANDALONE_BACKEND_EXE = PROJECT_ROOT / "backend-dist" / "english-crew-backend.exe"
@@ -65,6 +66,8 @@ def test_full_packaging_verification():
     print(f"  -> Unpacked Electron App  : {UNPACKED_APP} ({UNPACKED_APP.stat().st_size:,} bytes)")
     print(f"  -> Packaged Backend Exe   : {PACKAGED_BACKEND_EXE} ({PACKAGED_BACKEND_EXE.stat().st_size:,} bytes)")
     print(f"  -> Portable Release Exe   : {PORTABLE_EXE} ({PORTABLE_EXE.stat().st_size:,} bytes)")
+    if SETUP_EXE.exists():
+        print(f"  -> Setup Installer Exe    : {SETUP_EXE} ({SETUP_EXE.stat().st_size:,} bytes)")
     print("PASS: [Criterion a] All .exe executables exist and have non-zero size.")
 
     # -------------------------------------------------------------

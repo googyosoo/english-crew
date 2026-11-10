@@ -1,0 +1,2 @@
+66e53f3c20549f49a2619933f42a0b670c5372cb48b11eef3145dcef1ba6cb98  EnglishCrew-Setup.exe
+07de48ca6f00bb0f5fa4af46d34d47e9114cf58c4d42c8c1acaf07a711a71134  EnglishCrew-Portable.exe
