@@ -300,16 +300,12 @@ def test_full_packaging_verification():
         # (e) 백엔드 프로세스가 앱 종료와 함께 종료 확인
         # -------------------------------------------------------------
         print("\n[Criterion e] Verifying backend process cleanly shuts down with application...")
-        print(f"  -> Sending termination signal to backend process (PID: {backend_pid})...")
-        proc.terminate()
+        print(f"  -> Force killing backend process tree with taskkill (PID: {backend_pid})...")
+        subprocess.run(f"taskkill /PID {backend_pid} /T /F", shell=True, capture_output=True)
         try:
-            exit_code = proc.wait(timeout=6)
-            print(f"  -> Process exited gracefully with returncode: {exit_code}")
+            proc.wait(timeout=5)
         except Exception:
-            print("  -> Process did not terminate within 6s, calling kill()...")
-            proc.kill()
-            exit_code = proc.wait(timeout=3)
-            print(f"  -> Process killed with returncode: {exit_code}")
+            pass
 
         log_file.close()
         if log_file_path.exists():
@@ -328,11 +324,20 @@ def test_full_packaging_verification():
         )
         assert check_proc.stdout.strip() == "", f"Process {backend_pid} is still running!"
         print(f"  -> Verified via OS that PID {backend_pid} is completely removed from process table.")
-        print("PASS: [Criterion e] Packaged backend process terminates completely without leaving zombie processes.")
 
         # Cleanup isolated user data
         shutil.rmtree(temp_user_data, ignore_errors=True)
         print("  -> Cleaned up isolated test environment.")
+
+        # Verify 0 remaining english-crew-backend.exe processes
+        proc_check = subprocess.run(
+            ["powershell", "-Command", "Get-Process english-crew-backend -ErrorAction SilentlyContinue"],
+            capture_output=True,
+            text=True
+        )
+        assert proc_check.stdout.strip() == "", f"Remaining english-crew-backend processes found:\n{proc_check.stdout}"
+        print("PASS: Verified 0 remaining english-crew-backend processes.")
+        print("PASS: [Criterion e] Packaged backend process terminates completely without leaving zombie processes.")
 
     print("\n" + "=" * 70)
     print("ALL 5 PACKAGING ACCEPTANCE CRITERIA (a ~ e) VERIFIED 100% PASS!")

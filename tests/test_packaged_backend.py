@@ -96,14 +96,24 @@ def test_packaged_binary():
 
     finally:
         if proc:
-            print("Terminating packaged backend process...")
-            proc.terminate()
+            print(f"Terminating packaged backend process (PID: {proc.pid})...")
+            # Force kill process tree including child processes
+            subprocess.run(f"taskkill /PID {proc.pid} /T /F", shell=True, capture_output=True)
             try:
                 proc.wait(timeout=5)
             except Exception:
-                proc.kill()
+                pass
         shutil.rmtree(temp_test_user_data, ignore_errors=True)
         print("PASS: Cleaned up temporary test user data.")
+
+        # Verify 0 remaining english-crew-backend.exe processes
+        proc_check = subprocess.run(
+            ["powershell", "-Command", "Get-Process english-crew-backend -ErrorAction SilentlyContinue"],
+            capture_output=True,
+            text=True
+        )
+        assert proc_check.stdout.strip() == "", f"Remaining english-crew-backend processes found:\n{proc_check.stdout}"
+        print("PASS: Verified 0 remaining english-crew-backend processes.")
 
 if __name__ == "__main__":
     test_packaged_binary()
