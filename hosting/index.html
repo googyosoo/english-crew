@@ -1,0 +1,308 @@
+﻿<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>English Crew - 2022 개정 고교 영어 수업·평가 설계 조교</title>
+  <style>
+    :root {
+      --primary: #1e40af;
+      --primary-hover: #1d4ed8;
+      --accent: #0284c7;
+      --bg-page: #f8fafc;
+      --card-bg: #ffffff;
+      --text-main: #0f172a;
+      --text-muted: #475569;
+      --border: #e2e8f0;
+      --success-bg: #ecfdf5;
+      --success-text: #065f46;
+      --warning-bg: #fffbeb;
+      --warning-text: #92400e;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Pretendard", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--bg-page);
+      color: var(--text-main);
+      line-height: 1.6;
+      padding: 0;
+    }
+    .container {
+      max-width: 920px;
+      margin: 0 auto;
+      padding: 48px 24px 80px;
+    }
+    header {
+      text-align: center;
+      margin-bottom: 48px;
+    }
+    .badge-top {
+      display: inline-block;
+      padding: 6px 14px;
+      background-color: #dbeafe;
+      color: #1e40af;
+      border-radius: 9999px;
+      font-size: 13px;
+      font-weight: 700;
+      margin-bottom: 16px;
+    }
+    h1 {
+      font-size: 36px;
+      font-weight: 800;
+      color: var(--text-main);
+      letter-spacing: -0.02em;
+      margin-bottom: 16px;
+    }
+    .intro-3lines {
+      font-size: 17px;
+      color: var(--text-muted);
+      max-width: 760px;
+      margin: 0 auto 24px;
+      line-height: 1.8;
+      word-break: keep-all;
+    }
+    .version-tag {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--accent);
+      background: #f0f9ff;
+      padding: 4px 12px;
+      border-radius: 6px;
+      border: 1px solid #bae6fd;
+      display: inline-block;
+    }
+    .download-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      margin-bottom: 40px;
+    }
+    @media (max-width: 640px) {
+      .download-grid { grid-template-columns: 1fr; }
+    }
+    .dl-card {
+      background: var(--card-bg);
+      border: 2px solid var(--border);
+      border-radius: 16px;
+      padding: 28px 24px;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      transition: transform 0.2s, border-color 0.2s;
+    }
+    .dl-card:hover {
+      transform: translateY(-2px);
+      border-color: var(--primary);
+    }
+    .dl-title {
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 8px;
+      color: var(--text-main);
+    }
+    .dl-desc {
+      font-size: 14px;
+      color: var(--text-muted);
+      margin-bottom: 20px;
+    }
+    .btn-download {
+      display: block;
+      background: var(--primary);
+      color: #ffffff;
+      padding: 14px 20px;
+      border-radius: 10px;
+      font-size: 15px;
+      font-weight: 700;
+      text-decoration: none;
+      transition: background 0.15s;
+    }
+    .btn-download:hover {
+      background: var(--primary-hover);
+    }
+    .btn-portable {
+      background: #334155;
+    }
+    .btn-portable:hover {
+      background: #1e293b;
+    }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 28px;
+      margin-bottom: 28px;
+    }
+    .card h2 {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--text-main);
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .step-list {
+      padding-left: 20px;
+      color: var(--text-main);
+      font-size: 15px;
+      line-height: 1.8;
+    }
+    .alert-box {
+      border-radius: 10px;
+      padding: 16px 20px;
+      margin-top: 14px;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+    .alert-smartscreen {
+      background: var(--warning-bg);
+      border: 1px solid #fde68a;
+      color: var(--warning-text);
+    }
+    .alert-privacy {
+      background: var(--success-bg);
+      border: 1px solid #a7f3d0;
+      color: var(--success-text);
+    }
+    table.checksum-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+      font-size: 13px;
+    }
+    table.checksum-table th, table.checksum-table td {
+      border: 1px solid var(--border);
+      padding: 10px 12px;
+      text-align: left;
+    }
+    table.checksum-table th {
+      background: #f1f5f9;
+      font-weight: 700;
+    }
+    table.checksum-table code {
+      font-family: monospace;
+      font-size: 12px;
+      background: #f8fafc;
+      padding: 2px 6px;
+      border-radius: 4px;
+      word-break: break-all;
+    }
+    footer {
+      text-align: center;
+      font-size: 13px;
+      color: #94a3b8;
+      margin-top: 48px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <span class="badge-top">2022 개정 교육과정 고교 영어과 지원</span>
+      <h1>English Crew (잉글리시 크루)</h1>
+      <div class="intro-3lines">
+        고등학교 영어 교사를 위한 인공지능 기반 수업·평가 설계 및 분석적 루브릭 작성 조교 프로그램입니다.<br>
+        교육부 고시 원문 성취기준을 100% 무결하게 인용하여 모호한 서술형 채점 기준표를 객관적 행동 지표로 자동 검증합니다.<br>
+        교사의 최종 결재 승인을 거친 산출물만 공문 규격의 한글/워드(.docx) 파일로 안전하게 완성합니다.
+      </div>
+      <div>
+        <span class="version-tag">정식 릴리스 버전: v1.0.0 (배포일: 2026-11-10)</span>
+      </div>
+    </header>
+
+    <!-- 다운로드 버튼 영역 -->
+    <div class="download-grid">
+      <div class="dl-card">
+        <div>
+          <div class="dl-title">설치형 프로그램 (권장)</div>
+          <div class="dl-desc">시작 메뉴 및 바탕화면에 바로가기를 생성하고 편리하게 업데이트를 관리합니다.</div>
+        </div>
+        <a class="btn-download" id="download-setup" href="https://github.com/googyosoo/english-crew-releases/releases/latest/download/EnglishCrew-Setup.exe">
+          EnglishCrew-Setup.exe 다운로드
+        </a>
+      </div>
+      <div class="dl-card">
+        <div>
+          <div class="dl-title">포터블 프로그램 (무설치)</div>
+          <div class="dl-desc">설치 과정 없이 USB나 원하는 폴더에서 즉시 단일 실행 파일로 시작합니다.</div>
+        </div>
+        <a class="btn-download btn-portable" id="download-portable" href="https://github.com/googyosoo/english-crew-releases/releases/latest/download/EnglishCrew-Portable.exe">
+          EnglishCrew-Portable.exe 다운로드
+        </a>
+      </div>
+    </div>
+
+    <!-- 설치 및 실행 절차 -->
+    <div class="card">
+      <h2>🚀 설치 및 시작 절차</h2>
+      <ol class="step-list">
+        <li>위 다운로드 버튼 중 원하는 파일(설치형 또는 포터블)을 내려받습니다.</li>
+        <li>다운로드한 실행 파일(<code>EnglishCrew-Setup.exe</code> 또는 <code>EnglishCrew-Portable.exe</code>)을 더블 클릭합니다.</li>
+        <li>Windows SmartScreen 알림 창이 나타나면 <strong>[추가 정보]</strong>를 누른 뒤 <strong>[실행]</strong> 버튼을 클릭합니다.</li>
+        <li>앱 화면 오른쪽 상단의 <strong>[API 설정]</strong> 메뉴에서 본인의 Google Gemini API 키를 등록합니다.</li>
+        <li>담당 과목(공통영어1, 공통영어2, 영어Ⅰ, 영어Ⅱ, 독해와 작문 등) 채널을 선택하고 수업·평가 설계를 요청합니다.</li>
+      </ol>
+
+      <div class="alert-box alert-smartscreen">
+        <strong>⚠️ Windows SmartScreen "Windows의 PC 보호" 안내:</strong><br>
+        공식 비영리 교육 오픈소스 배포 프로그램으로 고가의 유료 인증서 서명이 포함되지 않아 경고가 나타날 수 있습니다.
+        이는 정상적인 차단 창이며, <u>[추가 정보]를 누른 뒤 [실행]</u>을 클릭하시면 안전하게 기동됩니다.
+      </div>
+    </div>
+
+    <!-- 개인정보 보호 및 보안 안내 -->
+    <div class="card">
+      <h2>🛡️ 학생 개인정보 보호 및 로컬 보안 체계</h2>
+      <div class="alert-box alert-privacy">
+        <strong>1. 학생 식별 데이터 및 API 키 완전 로컬 보관</strong><br>
+        교사가 입력한 학생 명단, 세특 기초 자료, 그리고 Gemini API 키는 교사의 컴퓨터 내부(<code>userData</code> 폴더)에만 격리 보관되며 개발자 서버나 외부 클라우드로 전송되지 않습니다.
+        <br><br>
+        <strong>2. Gemini 인공지능 통신 시 실명 가명화 전송</strong><br>
+        AI 분석을 위해 Google Gemini 서버로 전달되는 요청에는 학생 실명이 일절 포함되지 않고 <code>Student 1</code>, <code>Student 2</code>와 같은 무작위 식별자로 자동 가명화되어 전송됩니다.
+      </div>
+    </div>
+
+    <!-- 시스템 필요 조건 -->
+    <div class="card">
+      <h2>💻 시스템 요구 사항</h2>
+      <ul class="step-list">
+        <li><strong>운영체제:</strong> Microsoft Windows 10 또는 Windows 11 (64-bit 전용)</li>
+        <li><strong>네트워크:</strong> Google Gemini API 통신을 위한 유무선 인터넷 연결</li>
+        <li><strong>필수 계정/키:</strong> Google AI Studio에서 무료로 발급받을 수 있는 개인 Gemini API 키</li>
+      </ul>
+    </div>
+
+    <!-- SHA-256 무결성 검증 표 -->
+    <div class="card">
+      <h2>🔒 파일 무결성 체크섬 (SHA-256)</h2>
+      <p style="font-size: 14px; color: var(--text-muted); margin-bottom: 12px;">
+        공식 릴리스 파일의 변조 여부를 확인하려면 아래의 공식 SHA-256 해시값과 대조하십시오.
+      </p>
+      <table class="checksum-table">
+        <thead>
+          <tr>
+            <th>배포 파일명</th>
+            <th>SHA-256 체크섬 (Checksum)</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>EnglishCrew-Setup.exe</strong></td>
+            <td><code>66e53f3c20549f49a2619933f42a0b670c5372cb48b11eef3145dcef1ba6cb98</code></td>
+          </tr>
+          <tr>
+            <td><strong>EnglishCrew-Portable.exe</strong></td>
+            <td><code>07de48ca6f00bb0f5fa4af46d34d47e9114cf58c4d42c8c1acaf07a711a71134</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <footer>
+      English Crew v1.0.0 &copy; 2026. 2022 개정 고등학교 영어과 교육과정 지원 프로젝트.
+    </footer>
+  </div>
+</body>
+</html>
+
