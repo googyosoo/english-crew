@@ -18,6 +18,14 @@ def build_backend():
     print(f"Output Dir: {output_dir}")
     print("==================================================")
 
+    # 1. Install dependencies strictly according to backend/requirements.lock
+    lock_file = project_root / "backend" / "requirements.lock"
+    if lock_file.exists():
+        print(f"Installing backend dependencies from lock file: {lock_file}")
+        subprocess.run([sys.executable, "-m", "pip", "install", "-r", str(lock_file)], check=True)
+    else:
+        print(f"WARNING: Lock file {lock_file} not found! Proceeding with current environment.")
+
     # Clean existing build / dist
     build_tmp = project_root / "build_backend_tmp"
     if build_tmp.exists():

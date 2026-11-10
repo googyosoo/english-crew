@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const net = require('net');
@@ -152,6 +152,7 @@ function createWindow() {
     title: 'English Crew',
     backgroundColor: '#f8f9fa',
     webPreferences: {
+      sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
       preload: path.join(__dirname, 'preload.js'),
@@ -160,6 +161,39 @@ function createWindow() {
         `--crew-port=${apiPort}`
       ]
     }
+  });
+
+  // Security P1: prevent in-app navigation away from app origin; open https links in external browser
+  mainWindow.webContents.on('will-navigate', (event, navigationUrl) => {
+    try {
+      const parsed = new URL(navigationUrl);
+      const isAllowedAppOrigin =
+        (parsed.protocol === 'http:' && (parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost')) &&
+        (parsed.port === String(apiPort) || parsed.port === '5173');
+
+      if (!isAllowedAppOrigin) {
+        event.preventDefault();
+        console.log(`[Security] Blocked in-app navigation to: ${navigationUrl}`);
+        if (parsed.protocol === 'https:') {
+          shell.openExternal(navigationUrl);
+        }
+      }
+    } catch (e) {
+      event.preventDefault();
+    }
+  });
+
+  // Security P1: deny all new window creation; open https links in external browser
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol === 'https:') {
+        shell.openExternal(url);
+      }
+    } catch (e) {
+      console.warn('[Security] Invalid URL in window open handler:', url, e);
+    }
+    return { action: 'deny' };
   });
 
   const devUrl = 'http://127.0.0.1:5173';
@@ -188,8 +222,21 @@ function createWindow() {
   });
 }
 
-// IPC handler to provide API config safely to renderer
-ipcMain.handle('get-api-config', () => {
+// IPC handler to provide API config safely to renderer (restricted to allowed app origins)
+ipcMain.handle('get-api-config', (event) => {
+  const senderUrl = event.senderFrame ? event.senderFrame.url : (event.sender ? event.sender.getURL() : '');
+  try {
+    const parsed = new URL(senderUrl);
+    const isAllowed =
+      (parsed.protocol === 'http:' && (parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost')) &&
+      (parsed.port === String(apiPort) || parsed.port === '5173');
+    if (!isAllowed) {
+      throw new Error(`Forbidden origin: ${senderUrl}`);
+    }
+  } catch (e) {
+    throw new Error('Unauthorized origin');
+  }
+
   return {
     token: apiToken,
     port: apiPort,
