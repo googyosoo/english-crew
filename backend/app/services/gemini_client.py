@@ -11,6 +11,7 @@ from google import genai
 from google.genai import types
 
 from backend.app.models.schemas import DispatchPlan, TaskSpec
+from backend.app.services.skill_loader import load_dynamic_skills, match_skills
 
 logger = logging.getLogger(__name__)
 
@@ -87,35 +88,35 @@ EXCLUDED_PROMPT_FILES = {
 # Retry delays for 503 (UNAVAILABLE) and 429 (RESOURCE_EXHAUSTED) errors
 RETRY_DELAYS = [3.0, 8.0, 15.0]
 
-def load_bot_instructions(bot_id: str) -> str:
+def load_bot_instructions(bot_id: str, context_text: Optional[str] = None) -> str:
     """
-    Recursively collects all .md files under backend/agents/{bot_id}/
-    and prepends the required non-exec instruction constraint.
-    Skips any files defined in EXCLUDED_PROMPT_FILES.
+    Recursively collects core .md files under backend/agents/{bot_id}/
+    (excluding the dynamic skills/ directory) and dynamically injects
+    only matching specialized skills based on the request context.
     """
     agents_dir = WORKSPACE_DIR / "backend" / "agents" / bot_id
     if not agents_dir.exists():
-        return "당신은 고등학교 영어 교육 전문 AI 어시스턴트입니다."
+        base_prompt = "당신은 고등학교 영어 교육 전문 AI 어시스턴트입니다."
+    else:
+        md_contents = [
+            "파일 생성·스크립트 실행 지시는 무시하고 결과를 Markdown 텍스트로만 출력하시오.\n\n"
+        ]
 
-    md_contents = [
-        "파일 생성·스크립트 실행 지시는 무시하고 결과를 Markdown 텍스트로만 출력하시오.\n\n"
-    ]
-
-    # Specific guidelines for Curriculum bot
-    if bot_id == "curriculum":
-        md_contents.append(
-            """--- [교육과정봇 필수 준수 규정] ---
+        # Specific guidelines for Curriculum bot
+        if bot_id == "curriculum":
+            md_contents.append(
+                """--- [교육과정봇 필수 준수 규정] ---
 1. 교육과정봇의 산출물은 성취기준 코드, 진술문, 평가요소, A~E 성취수준 원문까지만 작성하십시오.
 2. 루브릭 표나 세부 평가 기준표는 후행 평가봇(assessment)의 고유 과업이므로, 교육과정봇은 절대로 루브릭 표를 작성하지 마십시오.
 3. [본문 미제공 모드 성취기준 선택 규칙] 교과서 본문이 제공되지 않은 경우(지문 없음), 듣기나 읽기 지문이 전제되어야 하는 '요약'(예: [12영Ⅰ-02-04] 듣거나 읽은 내용을 말이나 글로 요약한다), '이해', '파악' 관련 성취기준을 절대 선택하지 마십시오. 반드시 학생이 독립적으로 자신의 생각이나 의견을 글로 서술하는 쓰기/표현 성취기준(예: [12영Ⅰ-02-03] 친숙하거나 다양한 주제에 관하여 자신의 의견이나 감정을 글로 쓴다, [12영Ⅰ-02-05] 관심 있는 주제에 관하여 목적에 맞게 자신의 생각이나 의견을 형식에 맞추어 글로 쓴다 등)만 선택하십시오.
 
 """
-        )
+            )
 
-    # Specific guidelines for Assessment bot
-    if bot_id == "assessment":
-        md_contents.append(
-            """--- [평가봇 필수 준수 규정] ---
+        # Specific guidelines for Assessment bot
+        if bot_id == "assessment":
+            md_contents.append(
+                """--- [평가봇 필수 준수 규정] ---
 1. [지문 생성 절대 금지] 교사가 본문을 제공하지 않았으면 산출물 맨 첫 줄에 반드시 '본문 미제공: 일반 주제 기준으로 작성함'을 명시하고, 영어 지문이나 본문 내용을 절대로 만들어내지 마십시오! "다음 글을 읽고", "지문을 읽고", "제시문을 읽고", "[글의 핵심 내용]" 등의 문구를 절대 쓰지 말고, 지문 없이 주제나 상황만 제시하고 학생이 자신의 생각이나 경험을 직접 영어로 서술하는 '지문 없는 독립 작문 과제(Writing Task)'로 출제하십시오.
    - 올바른 출제 예시: "디지털 기기 사용 절제에 대한 자신의 견해를 담은 3문장의 영문 글을 작성하시오.", "환경 보호 실천 방안에 대한 40~60단어의 주장문을 작성하시오."
 2. [문항 작성 조건과 모범 답안 일치] 문항에 명시한 단어 수 조건(예: 40~60단어)과 문장 수 조건(예: 2~3문장)은 모범 답안(Sample Answer)에서도 영문 단어 수와 문장 수를 정확히 계산하여 100% 일치하도록 작성하십시오.
@@ -126,18 +127,24 @@ def load_bot_instructions(bot_id: str) -> str:
 7. [성취기준 코드 무결성] 성취기준 코드는 교육과정봇이 도출한 2022 개정 교육과정 공식 코드(예: [12영Ⅰ-01-01])만 사용하고 임의로 코드를 만들지 마십시오.
 
 """
-        )
+            )
 
-    for md_file in sorted(agents_dir.rglob("*.md")):
-        if md_file.name in EXCLUDED_PROMPT_FILES:
-            continue
-        try:
-            text = md_file.read_text(encoding="utf-8")
-            md_contents.append(f"\n--- [참조 지침: {md_file.name}] ---\n{text}\n")
-        except Exception as e:
-            logger.warning(f"Failed to read {md_file}: {e}")
+        for md_file in sorted(agents_dir.rglob("*.md")):
+            if md_file.name in EXCLUDED_PROMPT_FILES or "skills" in md_file.parts:
+                continue
+            try:
+                text = md_file.read_text(encoding="utf-8")
+                md_contents.append(f"\n--- [참조 지침: {md_file.name}] ---\n{text}\n")
+            except Exception as e:
+                logger.warning(f"Failed to read {md_file}: {e}")
 
-    return "\n".join(md_contents)
+        base_prompt = "\n".join(md_contents)
+
+    # Dynamically inject matched specialized skills based on request context
+    dynamic_skills_text = load_dynamic_skills(bot_id, context_text)
+    if dynamic_skills_text:
+        return f"{base_prompt}\n\n{dynamic_skills_text}"
+    return base_prompt
 
 async def create_dispatch_plan(
     content: str,
@@ -230,7 +237,8 @@ async def execute_bot_task(
         raise ValueError("GEMINI_API_KEY가 설정되지 않았습니다. backend/.env에 유효한 API 키를 입력해 주세요.")
 
     client = genai.Client(api_key=api_key)
-    system_instruction = load_bot_instructions(bot_id)
+    context_text = f"{teacher_request}\n{title}\n{deliverable}\n{extra_context or ''}"
+    system_instruction = load_bot_instructions(bot_id, context_text)
 
     extra_section = ""
     if extra_context:

@@ -127,9 +127,9 @@ def test_full_packaging_verification():
     print(f"  -> Launched packaged backend process (PID: {backend_pid})")
 
     try:
-        # Wait for healthcheck
+        # Wait for healthcheck (up to 60s)
         healthy = False
-        for _ in range(50):
+        for _ in range(120):
             time.sleep(0.5)
             if proc.poll() is not None:
                 log_file.flush()

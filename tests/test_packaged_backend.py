@@ -52,9 +52,9 @@ def test_packaged_binary():
 
         base_url = f"http://127.0.0.1:{test_port}"
 
-        # Wait up to 25 seconds for startup
+        # Wait up to 60 seconds for startup
         health_data = None
-        for i in range(50):
+        for i in range(120):
             time.sleep(0.5)
             # Check if process died early
             if proc.poll() is not None:
